@@ -1,0 +1,125 @@
+import logging
+import asyncio
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import uvicorn
+
+from app.core.config import settings
+from app.core.database import init_db, get_active_camera_record
+from app.services.stream_service import stream_service
+from app.api.cameras import router as cameras_router
+from app.api.incidents import router as incidents_router
+from app.api.ws import router as ws_router, broadcast_loop
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s"
+)
+logger = logging.getLogger("agos.main")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifecycle management.
+    Initializes embedded SQLite database, starts video ingestion stream,
+    and runs the background WebSocket broadcaster.
+    """
+    logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION}...")
+
+    # 1. Initialize SQLite tables and seed defaults
+    await init_db()
+    logger.info("SQLite database initialized and verified.")
+
+    # 2. Retrieve active camera configuration
+    active_cam = await get_active_camera_record()
+    if active_cam:
+        logger.info(f"Loaded active camera: {active_cam['name']} ({active_cam['source']})")
+        stream_service.start(
+            source=active_cam["source"],
+            camera_id=active_cam["id"],
+            roi=active_cam.get("roi")
+        )
+    else:
+        logger.warning("No active camera found. Starting stream with default sample video.")
+        stream_service.start(
+            source=str(settings.DEFAULT_SAMPLE_VIDEO),
+            camera_id="cam-default",
+            roi=list(settings.DEFAULT_ROI)
+        )
+
+    # 3. Start background WebSocket frame & telemetry broadcaster loop
+    broadcast_task = asyncio.create_task(broadcast_loop())
+    logger.info("WebSocket broadcaster task started.")
+
+    yield
+
+    # Shutdown sequence
+    logger.info("Shutting down stream ingestion and WebSocket broadcaster...")
+    broadcast_task.cancel()
+    try:
+        await broadcast_task
+    except asyncio.CancelledError:
+        pass
+
+    stream_service.stop()
+    logger.info("AGOS-Offline backend shutdown complete.")
+
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    version=settings.VERSION,
+    description="Local-AI Drainage Inflow & Flood Mitigation Console for Philippine LGU Command Centers",
+    lifespan=lifespan
+)
+
+# CORS Middleware (allows operator console from localhost:5173 or other intranet clients)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Static file mount for locally stored incident frames
+app.mount(
+    "/storage",
+    StaticFiles(directory=str(settings.STORAGE_BASE_DIR)),
+    name="storage"
+)
+
+# API Routers
+app.include_router(cameras_router, prefix=f"{settings.API_PREFIX}/cameras", tags=["Cameras"])
+app.include_router(incidents_router, prefix=f"{settings.API_PREFIX}/incidents", tags=["Incidents"])
+app.include_router(ws_router)
+app.include_router(ws_router, prefix=settings.API_PREFIX)
+
+
+@app.get("/", tags=["Health"])
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """Health check endpoint providing system status and stream telemetry."""
+    return {
+        "status": "online",
+        "project": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "environment": "offline-edge",
+        "active_camera_id": stream_service.current_camera_id,
+        "stream": stream_service.get_status()
+    }
+
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "app.main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=False,
+        log_level="info"
+    )
