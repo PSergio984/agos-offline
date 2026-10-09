@@ -1,12 +1,16 @@
-"""ONNX export, recall gate, CPU benchmark and gated deploy for AGOS-Offline.
+"""ONNX export, coverage gate, CPU benchmark and gated deploy for AGOS-Offline.
 
-Flow: (optional) export best.pt -> check the single-class contract -> evaluate on the held-out
-public validation split with the production inference code -> gate -> CPU benchmark -> deploy.
+Flow: (optional) export best.pt -> check the single-class contract -> measure, on the validation
+split of --data, the full-frame width coverage implied by the labels (true) and by the model
+detections (predicted, production inference code and production coverage formula) -> gate ->
+CPU benchmark -> deploy.
 
-`backend/app/ml/weights/best.onnx` is only ever replaced when `--deploy` is given AND the gate
-passes (box recall >= --min-recall, negative false-positive rate <= --max-neg-fp-rate, and at
-least --min-neg-images negative validation images). A failed gate exits with code 2 and leaves
-the production weights untouched. Results are "validated on public data only".
+The gate PASSES only when at least --min-within-fraction of the positive images have a coverage
+error <= --max-coverage-error points AND no more than --max-neg-fp-rate of the clean negative
+images show coverage >= 20 (the warning threshold). With fewer than --min-neg-images negatives
+the negative check fails closed unless --allow-no-negatives is given (then the result is marked
+"negatives not checked"). `backend/app/ml/weights/best.onnx` is only replaced when `--deploy` is
+given AND the gate passes; a failed gate exits with code 2. Results are "validated on public data only".
 """
 
 from __future__ import annotations
@@ -122,16 +126,40 @@ def benchmark_cpu(onnx_path: Path, image: np.ndarray, iterations: int = 50, warm
     }
 
 
-def apply_gate(metrics: dict[str, Any], min_recall: float, max_neg_fp: float, min_neg: int) -> list[str]:
-    """Return the reasons the gate fails (empty list == pass)."""
-    reasons = []
-    if metrics["negative_images"] < min_neg:
-        reasons.append(f"only {metrics['negative_images']} negative val images (< {min_neg})")
-    if metrics["box_recall"] < min_recall:
-        reasons.append(f"box recall {metrics['box_recall']:.4f} < {min_recall}")
-    if metrics["negative_fp_rate"] > max_neg_fp:
-        reasons.append(f"negative FP rate {metrics['negative_fp_rate']:.4f} > {max_neg_fp}")
-    return reasons
+def apply_gate(
+    metrics: dict[str, Any],
+    min_within_fraction: float = 0.80,
+    max_neg_fp_rate: float = 0.10,
+    min_neg_images: int = 20,
+    allow_no_negatives: bool = False,
+) -> dict[str, Any]:
+    """Pure gate decision from `evaluate.summarize_coverage` metrics.
+
+    Returns {"passed", "failures", "negatives_checked", "note"}; an empty failures list means pass.
+    """
+    failures = []
+    if metrics["positive_images"] == 0:
+        failures.append("no positive validation images; coverage error cannot be measured")
+    elif metrics["within_fraction"] < min_within_fraction:
+        failures.append(f"only {metrics['within_fraction']:.1%} of positive images within "
+                        f"{metrics['max_coverage_error']} points (< {min_within_fraction:.0%})")
+    negatives_checked = metrics["negative_images"] >= min_neg_images
+    note = ""
+    if negatives_checked:
+        if metrics["negative_fp_rate"] > max_neg_fp_rate:
+            failures.append(f"negative false-coverage rate {metrics['negative_fp_rate']:.1%} "
+                            f"> {max_neg_fp_rate:.0%}")
+    elif allow_no_negatives:
+        note = (f"negatives not checked: only {metrics['negative_images']} negative val images "
+                f"(< {min_neg_images}); --allow-no-negatives given")
+    else:
+        failures.append(f"only {metrics['negative_images']} negative val images (< {min_neg_images}); "
+                        "negative check fails closed (use --allow-no-negatives to override)")
+    return {"passed": not failures, "failures": failures, "negatives_checked": negatives_checked, "note": note}
+
+
+SIDECAR_METRICS = ("median_abs_error", "p90_abs_error", "within_fraction", "max_coverage_error",
+                   "negative_fp_rate", "status_agreement", "positive_images", "negative_images")
 
 
 def deploy_weights(onnx_path: Path, report: dict[str, Any], training_source: str, prod: Path = PROD_WEIGHTS) -> dict[str, Any]:
@@ -152,8 +180,9 @@ def deploy_weights(onnx_path: Path, report: dict[str, Any], training_source: str
         "trained_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "license": "AGPL-3.0 (Ultralytics YOLOv8)",
         "validated_on": "public data only",
-        "metrics": {k: report["metrics"][k] for k in ("box_recall", "box_precision", "image_recall", "negative_fp_rate",
-                                                     "positive_images", "negative_images")},
+        "metrics": {k: report["metrics"][k] for k in SIDECAR_METRICS},
+        "negatives_checked": report["negatives_checked"],
+        "gate_note": report["gate_note"],
     }
     prod.with_name(prod.name + ".json").write_text(json.dumps(sidecar, indent=2) + "\n", encoding="utf-8")
     logger.info("Deployed %s (%s)", prod, sidecar["model_version"])
@@ -164,17 +193,20 @@ def write_reports(report: dict[str, Any], out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "gate_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     m = report["metrics"]
+    g = report["gate"]
     lines = [
         "# Export gate report", "", "Validated on public data only.", "",
         f"- Weights: `{report['weights']}` (SHA-256 `{report['sha256']}`)",
         f"- Positive val images: {m['positive_images']}, negative val images: {m['negative_images']}",
-        f"- Box recall @IoU0.5: {m['box_recall']:.4f}",
-        f"- Box precision: {m['box_precision']:.4f}",
-        f"- Image recall: {m['image_recall']:.4f}",
-        f"- Negative FP rate: {m['negative_fp_rate']:.4f}",
+        f"- Coverage error (positives): median {m['median_abs_error']} pts, p90 {m['p90_abs_error']} pts",
+        f"- Within {g['max_coverage_error']} points: {m['within_fraction']:.1%} (need >= {g['min_within_fraction']:.0%})",
+        f"- Negative false-coverage rate (>= 20%): {m['negative_fp_rate']:.1%} (max {g['max_neg_fp_rate']:.0%})",
+        f"- Status agreement (clear/partial/blocked, informational): {m['status_agreement']:.1%}",
         f"- Gate: {'PASS' if report['gate_passed'] else 'FAIL'}",
     ]
     lines += [f"  - {r}" for r in report["gate_failures"]]
+    if report["gate_note"]:
+        lines.append(f"  - {report['gate_note']}")
     if report.get("benchmark"):
         b = report["benchmark"]
         lines += ["", f"CPU benchmark ({b['intra_op_threads']} threads, {b['iterations']} runs): "
@@ -182,24 +214,33 @@ def write_reports(report: dict[str, Any], out_dir: Path) -> None:
     (out_dir / "gate_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def main() -> int:
-    p = argparse.ArgumentParser(description="Export YOLOv8 to ONNX, gate on recall, benchmark CPU, optionally deploy")
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(description="Export YOLOv8 to ONNX, gate on coverage error, benchmark CPU, optionally deploy")
     p.add_argument("--weights", default="ml_pipeline/runs/debris_yolov8n/weights/best.pt", help="best.pt or an .onnx file")
-    p.add_argument("--dataset", default="ml_pipeline/dataset_public", help="Dataset root with data.yaml and manifest.json")
-    p.add_argument("--images-dir", default=None, help="Override validation images dir (default <dataset>/images/val)")
-    p.add_argument("--labels-dir", default=None, help="Override validation labels dir (default <dataset>/labels/val)")
+    p.add_argument("--data", default="ml_pipeline/dataset_quick/data.yaml", help="Ultralytics data.yaml; its val split is used")
+    p.add_argument("--images-dir", default=None, help="Override validation images dir (default from --data)")
+    p.add_argument("--labels-dir", default=None, help="Override validation labels dir (default from --data)")
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--iterations", type=int, default=50)
-    p.add_argument("--min-recall", type=float, default=0.80)
+    p.add_argument("--max-coverage-error", type=float, default=15.0, help="Tolerated |predicted - true| coverage, in points")
+    p.add_argument("--min-within-fraction", type=float, default=0.80, help="Fraction of positive images that must be within tolerance")
     p.add_argument("--max-neg-fp-rate", type=float, default=0.10)
     p.add_argument("--min-neg-images", type=int, default=20)
+    p.add_argument("--allow-no-negatives", action="store_true",
+                   help="Pass without a negative check when too few negatives exist (flagged 'negatives not checked')")
     p.add_argument("--deploy", action="store_true", help="Replace production best.onnx (only if the gate passes)")
     p.add_argument("--allow-synthetic", action="store_true", help="Allow a synthetic dataset (smoke test only, never deploys)")
     p.add_argument("--report-dir", default="ml_pipeline/runs/gate")
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
-    dataset = Path(args.dataset)
-    manifest_path = dataset / "manifest.json"
+    data_yaml = Path(args.data)
+    if not data_yaml.is_file():
+        logger.error("data.yaml not found at %s; refusing.", data_yaml)
+        return EXIT_GATE_FAILED
+    images_dir, labels_dir = evaluate.resolve_val_dirs(data_yaml)
+    images_dir = Path(args.images_dir) if args.images_dir else images_dir
+    labels_dir = Path(args.labels_dir) if args.labels_dir else labels_dir
+    manifest_path = data_yaml.parent / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
     if manifest.get("synthetic") and not args.allow_synthetic:
         logger.error("%s is marked synthetic; refusing. Use --allow-synthetic for a smoke test.", manifest_path)
@@ -208,8 +249,6 @@ def main() -> int:
         logger.error("Synthetic datasets can never be used to deploy.")
         return EXIT_GATE_FAILED
 
-    images_dir = Path(args.images_dir) if args.images_dir else dataset / "images" / "val"
-    labels_dir = Path(args.labels_dir) if args.labels_dir else dataset / "labels" / "val"
     if not images_dir.is_dir():
         logger.error("Validation images not found at %s; cannot evaluate, refusing.", images_dir)
         return EXIT_GATE_FAILED
@@ -225,27 +264,37 @@ def main() -> int:
         logger.error("Contract violations: %s", "; ".join(problems))
         return EXIT_GATE_FAILED
 
-    metrics = evaluate.evaluate_onnx(onnx_file, images_dir, labels_dir)
-    failures = apply_gate(metrics, args.min_recall, args.max_neg_fp_rate, args.min_neg_images)
-    first_img = next((q for q in sorted(images_dir.iterdir()) if q.suffix.lower() in evaluate.IMAGE_EXTS), None)
+    records = evaluate.build_coverage_records(evaluate.load_detector(onnx_file), images_dir, labels_dir)
+    metrics = evaluate.summarize_coverage(records, args.max_coverage_error)
+    gate = apply_gate(metrics, args.min_within_fraction, args.max_neg_fp_rate, args.min_neg_images,
+                      args.allow_no_negatives)
+    failures = gate["failures"]
+    first_img = next(iter(evaluate.iter_images(images_dir)), None)
     benchmark = benchmark_cpu(onnx_file, cv2.imread(str(first_img)), args.iterations) if first_img else None
 
     report = {
         "weights": onnx_file.name, "sha256": sha256_of(onnx_file), "metrics": metrics,
-        "gate": {"min_recall": args.min_recall, "max_neg_fp_rate": args.max_neg_fp_rate, "min_neg_images": args.min_neg_images},
-        "gate_passed": not failures, "gate_failures": failures, "benchmark": benchmark,
-        "validated_on": "public data only",
+        "gate": {"max_coverage_error": args.max_coverage_error, "min_within_fraction": args.min_within_fraction,
+                 "max_neg_fp_rate": args.max_neg_fp_rate, "min_neg_images": args.min_neg_images,
+                 "allow_no_negatives": args.allow_no_negatives},
+        "gate_passed": gate["passed"], "gate_failures": failures, "negatives_checked": gate["negatives_checked"],
+        "gate_note": gate["note"], "benchmark": benchmark, "validated_on": "public data only",
+        "per_image": records,
     }
     write_reports(report, Path(args.report_dir))
-    logger.info("recall=%.4f neg_fp=%.4f pos=%d neg=%d gate=%s", metrics["box_recall"], metrics["negative_fp_rate"],
-                metrics["positive_images"], metrics["negative_images"], "PASS" if not failures else "FAIL")
+    logger.info("coverage error median=%s p90=%s within=%.1f%% neg_fp=%.1f%% pos=%d neg=%d status_agree=%.1f%% gate=%s",
+                metrics["median_abs_error"], metrics["p90_abs_error"], 100 * metrics["within_fraction"],
+                100 * metrics["negative_fp_rate"], metrics["positive_images"], metrics["negative_images"],
+                100 * metrics["status_agreement"], "PASS" if gate["passed"] else "FAIL")
+    if gate["note"]:
+        logger.warning(gate["note"])
 
     if failures:
         logger.error("Gate FAILED: %s. Production weights untouched.", "; ".join(failures))
         return EXIT_GATE_FAILED
     if args.deploy:
-        sources = ", ".join(s["name"] for s in manifest.get("sources", [])) or "unknown"
-        deploy_weights(onnx_file, report, f"public datasets: {sources}")
+        source = manifest.get("source") or ", ".join(s["name"] for s in manifest.get("sources", [])) or "unknown"
+        deploy_weights(onnx_file, report, f"public datasets: {source}", PROD_WEIGHTS)
     else:
         logger.info("Gate passed. Re-run with --deploy to replace production weights.")
     return 0
