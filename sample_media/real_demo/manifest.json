@@ -1,10 +1,11 @@
 {
   "default_roi": [
-    0.2,
-    0.4,
-    0.8,
-    0.9
+    0.0,
+    0.0,
+    1.0,
+    1.0
   ],
+  "crop_rule": "4:3 crop of the original photo around the drain/grate/pile the stage is about (about 4% margin per side, clamped to the photo), scaled to 640x480; no border fill, nothing composited",
   "frame": [
     640,
     480
@@ -16,12 +17,13 @@
       "file": "empty.jpg",
       "stage": "empty",
       "hold_seconds": 20,
-      "source_roi_px": [
-        115,
-        358,
-        1165,
-        768
+      "source_crop_px": [
+        70,
+        0,
+        1206,
+        852
       ],
+      "crop_rationale": "rectangular grate and its 'Dump No Waste' curb inlet box; full photo height, grate spans about 93% of the width",
       "licence": "CC0",
       "licence_url": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
       "title": "Dump No Waste! Drains to Waterways! - Arlington, MA - DSC05450.jpg",
@@ -35,12 +37,13 @@
       "file": "filling_a.jpg",
       "stage": "filling",
       "hold_seconds": 15,
-      "source_roi_px": [
-        40,
-        40,
-        1240,
-        1240
+      "source_crop_px": [
+        0,
+        160,
+        1280,
+        1120
       ],
+      "crop_rationale": "full-width crop of the round grate with every slot opening in frame; outer rim trimmed top and bottom because a circle cannot fill 4:3 without fill",
       "licence": "CC0",
       "licence_url": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
       "title": "Q.W.P. 24\" Grate - Cambridge, MA.jpg",
@@ -54,12 +57,14 @@
       "file": "filling_b.jpg",
       "stage": "filling",
       "hold_seconds": 15,
-      "source_roi_px": [
+      "source_crop_px": [
         0,
-        256,
+        80,
         960,
-        1280
+        800
       ],
+      "crop_rationale": "full-width crop of the curb inlet hood and mouth with the bottle and leaf litter in front of it",
+      "crop_adjustment": "one, for framing only, before any replay: the first eyeballed crop assumed the hood top at y~180 and cut it; the framing preview showed it at y~90, so the crop moved up to y=80",
       "licence": "CC0",
       "licence_url": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
       "title": "\"I prefer the bottled stuff,\" said the storm drain. (25565964563).jpg",
@@ -73,12 +78,13 @@
       "file": "blocked.jpg",
       "stage": "blocked",
       "hold_seconds": 45,
-      "source_roi_px": [
-        128,
-        30,
-        1024,
-        466
+      "source_crop_px": [
+        160,
+        0,
+        964,
+        603
       ],
+      "crop_rationale": "grate opening with the litter pile across it, about 30 px margin each side, from the top of the photo to below the floating plank",
       "licence": "CC BY 2.0",
       "licence_url": "https://creativecommons.org/licenses/by/2.0",
       "title": "Storm Drain Clogged - Mid-City New Orleans.jpg",
@@ -92,12 +98,13 @@
       "file": "cleared.jpg",
       "stage": "cleared",
       "hold_seconds": 30,
-      "source_roi_px": [
-        100,
-        250,
-        790,
-        680
+      "source_crop_px": [
+        78,
+        205,
+        818,
+        760
       ],
+      "crop_rationale": "clean grate in its concrete apron with the edge of the curb inlet throat, about 4% margin",
       "licence": "CC BY 4.0",
       "licence_url": "https://creativecommons.org/licenses/by/4.0",
       "title": "Storm drain curb inlet San Diego.jpg",
