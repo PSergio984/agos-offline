@@ -3,6 +3,7 @@
 Checks the CLEAR -> burst -> CRITICAL -> settled -> cleared cycle with exactly one incident that
 closes, and writes .agents/tasks/demo-replay-report.md. No detections are faked.
 """
+import argparse
 import asyncio
 import json
 import sqlite3
@@ -51,6 +52,13 @@ def incidents() -> list[dict]:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--strict", action="store_true", help="exit 1 unless every stage passes")
+    ap.add_argument("--weights", type=Path, default=settings.WEIGHTS_PATH, help="ONNX weights to replay (default: shipped)")
+    ap.add_argument("--out", type=Path, default=REPORT, help="report path (default: demo-replay-report.md)")
+    args = ap.parse_args()
+    shipped = args.weights == settings.WEIGHTS_PATH
+    settings.WEIGHTS_PATH = args.weights
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     fps = manifest["fps"]
     tmp = Path(tempfile.mkdtemp(prefix="agos_replay_"))
@@ -125,12 +133,12 @@ def main() -> int:
 
     all_ok = all(v[0] for v in results.values())
     lines = ["# Demo replay report", "",
-             f"Video: sample_media/real_demo.mp4, fake clock, REAL best.onnx, default ROI {settings.DEFAULT_ROI}.",
+             f"Video: sample_media/real_demo.mp4, fake clock, REAL {args.weights}, default ROI {settings.DEFAULT_ROI}.",
              "", "## Stage results", ""]
     for name, (passed, note) in results.items():
         lines.append(f"- {name}: {'PASS' if passed else 'FAIL'} ({note})")
     lines += ["", f"OVERALL: {'PASS' if all_ok else 'FAIL'}"]
-    if not all_ok:
+    if not all_ok and shipped:
         lines += ["", "REVERIFY_AFTER_RETRAIN: the shipped weights fail on this real set (baseline box recall 0.0376, "
                       "negative FP rate 0.667). Fixes tried on the blocked image: 5 re-crops of blocked.jpg (full frame to tight on the pile; model found 0-1 low-confidence boxes, 0% ROI), then a swap to a canal-trash photo (best crop reached only WARNING at 27%). Nothing was faked. Re-run `python sample_media/verify_real_demo.py` after FEAT-005 deploys a retrained model."]
     lines += ["", "## Timeline (one row per inference)", "",
@@ -139,13 +147,13 @@ def main() -> int:
     for r in rows:
         lines.append(f"| {r['t']} | {r['raw_ratio']:.2f} | {r['smoothed']:.2f} | {r['raw_status']} | {r['status']} | "
                      f"{r['interval']} | {r['mode']} | {r['boxes']} | {r['incidents']} | {r['open']} |")
-    REPORT.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     for name, (passed, note) in results.items():
         print(f"{name}: {'PASS' if passed else 'FAIL'} - {note}")
-    print(f"OVERALL: {'PASS' if all_ok else 'FAIL'}; report: {REPORT}")
+    print(f"OVERALL: {'PASS' if all_ok else 'FAIL'}; report: {args.out}")
     # A documented real-model failure is a result, not a crash: exit non-zero only with --strict.
-    return 0 if (all_ok or "--strict" not in sys.argv) else 1
+    return 0 if (all_ok or not args.strict) else 1
 
 
 if __name__ == "__main__":
