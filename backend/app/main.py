@@ -122,6 +122,7 @@ async def stream_switch_fallback(payload: StreamSwitchRequest = None):
 
 @app.get("/", tags=["Health"])
 @app.get("/health", tags=["Health"])
+@app.get(f"{settings.API_PREFIX}/health", tags=["Health"])
 async def health_check():
     """Health check endpoint providing system status and stream telemetry."""
     return {
