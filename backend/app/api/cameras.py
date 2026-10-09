@@ -230,6 +230,39 @@ async def switch_active_camera(
     }
 
 
+@router.get("/{camera_id}/roi")
+async def get_camera_roi(camera_id: str, db: aiosqlite.Connection = Depends(get_db)):
+    """Retrieve calibrated Region of Interest (ROI) for a specific camera."""
+    cursor = await db.execute("SELECT id FROM cameras WHERE id = ?", (camera_id,))
+    row = await cursor.fetchone()
+    if not row:
+        fallback_roi = stream_service.roi if stream_service.current_camera_id == camera_id else list(settings.DEFAULT_ROI)
+        return {
+            "camera_id": camera_id,
+            "roi": fallback_roi,
+            "x_min": fallback_roi[0],
+            "y_min": fallback_roi[1],
+            "x_max": fallback_roi[2],
+            "y_max": fallback_roi[3],
+        }
+
+    roi_cursor = await db.execute(
+        "SELECT x_min, y_min, x_max, y_max FROM roi_configs WHERE camera_id = ? ORDER BY created_at DESC LIMIT 1",
+        (camera_id,),
+    )
+    roi_row = await roi_cursor.fetchone()
+    roi = [roi_row["x_min"], roi_row["y_min"], roi_row["x_max"], roi_row["y_max"]] if roi_row else list(settings.DEFAULT_ROI)
+
+    return {
+        "camera_id": camera_id,
+        "roi": roi,
+        "x_min": roi[0],
+        "y_min": roi[1],
+        "x_max": roi[2],
+        "y_max": roi[3],
+    }
+
+
 @router.put("/{camera_id}/roi")
 @router.post("/{camera_id}/roi")
 async def update_camera_roi(

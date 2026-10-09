@@ -245,8 +245,9 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
   useEffect(() => {
     let active = true;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Check if hosted via vite dev proxy or direct port 8000
-    const wsUrl = `${protocol}//${window.location.hostname}:8000/ws`;
+    // Use 127.0.0.1 to avoid Windows IPv6 resolution latency/refusal
+    const wsHost = window.location.hostname === 'localhost' ? '127.0.0.1' : window.location.hostname;
+    const wsUrl = `${protocol}//${wsHost}:8000/ws`;
 
     let reconnectTimer: number;
 
@@ -295,29 +296,51 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
           } else if (typeof event.data === 'string') {
             try {
               const data = JSON.parse(event.data);
-              if (data.frame_b64 || data.image) {
+              const frameSrc = data.frame || data.frame_b64 || data.image;
+              if (frameSrc) {
                 const img = new Image();
                 img.onload = () => {
                   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 };
-                img.src = data.frame_b64 || data.image;
+                img.src = frameSrc;
               }
 
-              if (typeof data.occlusion_ratio === 'number') {
-                setOcclusionRatio(data.occlusion_ratio);
+              const ratioVal = typeof data.occlusion_ratio === 'number'
+                ? data.occlusion_ratio
+                : (typeof data.detection?.occlusion_ratio === 'number' ? data.detection.occlusion_ratio : undefined);
+              if (ratioVal !== undefined) {
+                setOcclusionRatio(ratioVal);
               }
-              if (data.status) {
-                setCurrentStatus(data.status);
+
+              // Guaranteed string status: never allow an object to enter React state
+              let resolvedStatus: string = 'CLEAR';
+              if (typeof data.status === 'string') {
+                resolvedStatus = data.status;
+              } else if (data.detection && typeof data.detection.status === 'string') {
+                resolvedStatus = data.detection.status;
+              } else if (data.status && typeof data.status.status === 'string') {
+                resolvedStatus = data.status.status;
               }
-              if (Array.isArray(data.detections)) {
-                setDetections(data.detections);
+              setCurrentStatus(resolvedStatus as OcclusionStatus);
+
+              const detectionsList = Array.isArray(data.detections)
+                ? data.detections
+                : (Array.isArray(data.detection?.boxes) ? data.detection.boxes : []);
+              if (Array.isArray(detectionsList)) {
+                setDetections(detectionsList);
               }
+
               if (data.timestamp) {
                 setLatency(Math.max(1, Math.round(Date.now() - Number(data.timestamp))));
               }
 
               if (onTelemetryUpdate) {
-                onTelemetryUpdate(data);
+                onTelemetryUpdate({
+                  ...data,
+                  status: resolvedStatus as OcclusionStatus,
+                  occlusion_ratio: ratioVal ?? 0,
+                  detections: detectionsList,
+                });
               }
             } catch {
               // Not JSON, ignore
@@ -463,7 +486,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
               : 'bg-emerald-950/80 border-emerald-500 text-emerald-200'
           }`}
         >
-          <span className="font-bold tracking-wider uppercase">{currentStatus}</span>
+          <span className="font-bold tracking-wider uppercase">{String(currentStatus || 'CLEAR')}</span>
           <span className="text-white/60">|</span>
           <span className="font-bold">{occlusionRatio}% Occlusion</span>
           <span className="text-white/60">|</span>

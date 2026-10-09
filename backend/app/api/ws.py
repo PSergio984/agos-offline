@@ -131,9 +131,11 @@ async def websocket_stream_endpoint(websocket: WebSocket):
             "type": "connected",
             "camera_id": stream_service.current_camera_id,
             "roi": stream_service.roi,
-            "status": stream_service.get_status(),
+            "status": stream_service.latest_detection.get("status", "CLEAR"),
+            "occlusion_ratio": stream_service.latest_detection.get("occlusion_ratio", 0.0),
+            "connection": stream_service.get_status(),
             "detection": stream_service.latest_detection,
-            "server_time": datetime.now().isoformat()
+            "server_time": datetime.now().isoformat(),
         }
         await websocket.send_json(initial_status)
     except Exception:

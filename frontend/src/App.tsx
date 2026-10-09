@@ -4,6 +4,7 @@ import {
   StreamSource,
   FrameTelemetry,
   Incident,
+  OcclusionStatus,
 } from './types';
 import { CameraFeed } from './components/CameraFeed';
 import { ROIEditor } from './components/ROIEditor';
@@ -196,9 +197,18 @@ export const App: React.FC = () => {
   }, [selectedCamera]);
 
   const handleTelemetryUpdate = (data: FrameTelemetry) => {
+    const rawStatus = (data as any).status;
+    const safeStatus: OcclusionStatus =
+      typeof rawStatus === 'string'
+        ? (rawStatus as OcclusionStatus)
+        : (data.status && typeof (data.status as any).status === 'string'
+            ? ((data.status as any).status as OcclusionStatus)
+            : 'CLEAR');
+
     setTelemetry((prev) => ({
       ...prev,
       ...data,
+      status: safeStatus,
       camera_name: selectedCamera.name,
       location: selectedCamera.location,
     }));
@@ -445,7 +455,7 @@ export const App: React.FC = () => {
                     : 'bg-emerald-950 text-emerald-300 border-emerald-600'
                 }`}
               >
-                {telemetry.status}
+                {String(telemetry.status || 'CLEAR')}
               </span>
             </div>
 
