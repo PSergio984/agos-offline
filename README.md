@@ -10,7 +10,7 @@ Built for the **AppBuildersPH Hackathon 2026** (Theme: *Local AI*).
 
 **AGOS-Offline** is an on-premises, edge-resilient vision system designed for Philippine Local Government Unit (LGU) Disaster Risk Reduction and Management Offices (DRRMO). 
 
-Instead of fragile outdoor IoT microcontrollers, AGOS-Offline connects directly to **existing municipal CCTV camera feeds** (or video loops) over the local intranet. An on-device **YOLOv8 ONNX model** continuously monitors drainage grates and canal culverts, measuring solid waste occlusion and surface water ponding in real time.
+Instead of fragile outdoor IoT microcontrollers, AGOS-Offline connects directly to **existing municipal CCTV camera feeds** (or video loops) over the local intranet. An on-device **YOLOv8 ONNX model** continuously monitors drainage grates and canal culverts and reports how much of the ROI width is covered by solid waste.
 
 When tropical storms knock down cellular towers, fiber backhauls, and cloud services, AGOS-Offline runs **100% offline** on local command center hardware with zero cloud dependencies.
 
@@ -20,8 +20,8 @@ When tropical storms knock down cellular towers, fiber backhauls, and cloud serv
 
 - **Direct CCTV / Video Ingestion:** Ingests live RTSP streams from LGU IP cameras, local MP4 video loops, or USB webcams via OpenCV.
 - **Local YOLOv8 ONNX Inference:** Runs on standard CPU or integrated GPU with zero cloud API latency or egress costs.
-- **Grate Region of Interest (ROI) Calibration:** Operators can adjust the drainage grate bounding box directly on the live UI canvas.
-- **Occlusion Ratio & Temporal Smoothing:** Quantifies trash width coverage of the ROI ($<20\%$ Clear, $20-59\%$ Warning, $\ge 60\%$ Critical Blocked) with a 2-of-3 frame smoothing window to reject false positives.
+- **Grate Region of Interest (ROI) Calibration:** Operators can adjust the drainage grate bounding box directly on the live UI canvas. The default ROI is the full frame.
+- **Width Coverage & Temporal Smoothing:** Reports debris width coverage of the ROI ($<20\%$ Clear, $20-59\%$ Warning, $\ge 60\%$ Critical Blocked) with a 2-of-3 frame smoothing window to reduce false alarms. See [Model and Metric](#model-and-metric) for what this number means and how far it can be trusted.
 - **Audible Emergency Siren & Visual Banners:** Immediate local operator notification via Web Audio API.
 - **VHF/UHF Radio Dispatch Tickets:** Auto-generates standard voice radio scripts for command center dispatchers to alert mobile patrol units and barangay tanods.
 - **Embedded SQLite & Local Storage:** Stores incident snapshots and logs locally on disk (`agos.db`) with an optional store-and-forward queue for Supabase cloud sync when connectivity is restored.
@@ -38,13 +38,14 @@ agos-offline/
 │   │   ├── api/             # REST endpoints (cameras, incidents, weather) & WebSocket
 │   │   ├── core/            # Config, SQLite database engine
 │   │   ├── ml/              # YOLOv8 ONNX model, preprocessing, occlusion math
-│   │   │   └── weights/     # best.onnx (12MB)
+│   │   │   └── weights/     # best.onnx (12MB) + best.onnx.json sidecar
 │   │   ├── services/        # Stream ingestion manager & background processor
 │   │   └── main.py          # FastAPI application
 │   ├── storage/             # Locally stored incident frames
 │   └── requirements.txt
 ├── frontend/                # Vite + React + TypeScript + Tailwind operator console
-├── sample_media/            # Preloaded drainage demo clips for hackathon judging
+├── ml_pipeline/             # Training, coverage gate and export scripts (see ml_pipeline/README.md)
+├── sample_media/            # Demo clips; real_demo.mp4 is built from licensed real photos
 ├── run.bat                  # Windows 1-click launcher
 └── README.md
 ```
@@ -106,9 +107,34 @@ The hazard only adds a badge to the console and a warning in the radio dispatch 
 
 Settings: `WEATHER_FETCH_INTERVAL_SECONDS`, `WEATHER_LAT`, `WEATHER_LON`, `RAIN_HAZARD_THRESHOLD_MM`.
 
-## Model Status
+## Model and Metric
 
-`backend/app/ml/weights/best.onnx.json` records the version, training source, SHA-256 and licence of the weights. `GET /api/v1/health` returns a `model` object (also sent as a `model_status` WebSocket message) that includes `sidecar_hash_match`, which is false if the weights file no longer matches the sidecar. The current weights are tagged `legacy-unknown` because their provenance was not recorded. The weights come from Ultralytics YOLOv8 (AGPL-3.0).
+**What the console reports.** Width coverage of the ROI: the merged horizontal span of the debris boxes, clipped to the ROI x-range, divided by the ROI width (the same formula as the original AGOS system; the default ROI is the full frame). Clear is below 20%, Warning 20-59%, Critical 60% or more. There is a single class, `debris`; the model does not classify debris types.
+
+**Deployed model.** `backend/app/ml/weights/best.onnx`, version `debris-yolov8n-20261009-7e387c29-gate-overridden` (see `best.onnx.json`). It is a YOLOv8n fine-tuned on about 1.2k images from the [TACO](https://github.com/pedropro/TACO) project (images come from Flickr; per-image Flickr licences were not verified, so **do not redistribute the weights**), plus a small set of permissive Wikimedia Commons photos of clean drains and roads as negatives.
+
+**The coverage gate was not passed. It was overridden by the user.** The export gate (300 TACO validation positives and 60 Commons negatives) requires at least 80% of positives within 15 points of the true coverage and at most 10% false coverage on negatives. The tolerances are proposed defaults, not figures from the original system. The deployed model measured:
+
+| Model | Positives within 15 pts (need >= 80%) | Negative false coverage (max 10%) |
+| :--- | :--- | :--- |
+| Legacy shipped model | 43.3% | 50.0% |
+| First fine-tune | 78.7% | 15.0% |
+| **Deployed (fine-tune with negatives)** | **77.7%** | **16.7% (10 of 60)** |
+
+Other numbers for the deployed model: median coverage error 4.36 points, 90th percentile 33.59 points, clear/partial/blocked status agreement 75.3%, CPU inference 37 ms mean (about 27 FPS) with 4 ONNX Runtime threads on the development PC; other machines will differ. It was deployed with `--override-gate` because it is the only model that passes all four stages of the stage demo replay (the legacy model fails; its box recall was 0.0376). The override reason, the failing numbers and `gate_passed: false` are recorded in the sidecar, and the model version ends in `-gate-overridden`.
+
+**What this does not show.**
+- Validated on public data only. There is no accuracy claim for real municipal CCTV footage.
+- The validation split is by image id, not by scene, so the numbers may be optimistic. The 300 validation positives are also the gate positives, and the checkpoint was selected on them.
+- The negative set is small and contains some images with real litter, so part of the false coverage may be real.
+- Weak on large dense debris piles (most failing positives are big piles predicted near 0%).
+- False coverage on some clean drains and canals.
+- Small training set (about 1.2k TACO images; 44 training and 20 held-out negatives).
+- The stage demo (`sample_media/real_demo.mp4`) is built from licensed real photos, not live cameras.
+
+**Licence.** The model and Ultralytics YOLOv8 are AGPL-3.0 (the sidecar says `AGPL-3.0 (Ultralytics YOLOv8)`). Do not describe the model as open source in a permissive sense or as MIT. Demo photo attribution is in `sample_media/real_demo/ATTRIBUTION.md`; dataset notes are in `ml_pipeline/README.md`.
+
+**Model status in the console.** `backend/app/ml/weights/best.onnx.json` records the version, training source, SHA-256 and licence of the weights. `GET /api/v1/health` returns a `model` object (also sent as a `model_status` WebSocket message) that includes `model_version` and `sidecar_hash_match`, which is false if the weights file no longer matches the sidecar. To retrain, tighten or re-run the gate, see `ml_pipeline/README.md`.
 
 ## Security Notes
 
