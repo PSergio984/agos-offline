@@ -33,6 +33,25 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
   const wsRef = useRef<WebSocket | null>(null);
   const simAnimIdRef = useRef<number | null>(null);
 
+  // Synchronize dynamic props into stable refs to decouple transport lifecycle from render churn
+  const onTelemetryUpdateRef = useRef(onTelemetryUpdate);
+  onTelemetryUpdateRef.current = onTelemetryUpdate;
+
+  const roiRef = useRef(roi);
+  roiRef.current = roi;
+
+  const isROIEditingRef = useRef(isROIEditing);
+  isROIEditingRef.current = isROIEditing;
+
+  const showROIOverlayRef = useRef(showROIOverlay);
+  showROIOverlayRef.current = showROIOverlay;
+
+  const cameraIdRef = useRef(cameraId);
+  cameraIdRef.current = cameraId;
+
+  const cameraNameRef = useRef(cameraName);
+  cameraNameRef.current = cameraName;
+
   // Fallback / Simulated video renderer when backend WebSocket is offline
   const startSimulation = useCallback(() => {
     setConnectionStatus('simulated');
@@ -88,7 +107,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
       ctx.fill();
 
       // Draw Physical Metal Grate Bars in the active ROI zone
-      const [rx1, ry1, rx2, ry2] = roi;
+      const [rx1, ry1, rx2, ry2] = roiRef.current;
       const grateX1 = rx1 * w;
       const grateY1 = ry1 * h;
       const grateW = (rx2 - rx1) * w;
@@ -183,7 +202,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
       }
 
       // 4. Draw Grate ROI Overlay if enabled
-      if (showROIOverlay && !isROIEditing) {
+      if (showROIOverlayRef.current && !isROIEditingRef.current) {
         ctx.strokeStyle = '#06b6d4';
         ctx.lineWidth = 2;
         ctx.setLineDash([6, 3]);
@@ -218,17 +237,17 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
         setLatency(Math.floor(18 + Math.random() * 8));
       }
 
-      if (onTelemetryUpdate) {
-        onTelemetryUpdate({
+      if (onTelemetryUpdateRef.current) {
+        onTelemetryUpdateRef.current({
           timestamp: Date.now(),
           fps: frameCountRef.current || 10,
           latency_ms: 22,
           occlusion_ratio: Number(totalOcclusion.toFixed(1)),
           status,
-          roi,
+          roi: roiRef.current,
           detections: currentDetections,
-          camera_id: cameraId,
-          camera_name: cameraName,
+          camera_id: cameraIdRef.current,
+          camera_name: cameraNameRef.current,
           hysteresis_ratio: '3/3 frames',
           trash_count: currentDetections.length,
           store_and_forward_queue_size: 0,
@@ -239,7 +258,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
     };
 
     simAnimIdRef.current = requestAnimationFrame(renderSimFrame);
-  }, [roi, isROIEditing, showROIOverlay, cameraId, cameraName, onTelemetryUpdate]);
+  }, []);
 
   // Connect to live WebSocket stream
   useEffect(() => {
@@ -336,8 +355,8 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
                 setLatency(Math.max(1, Math.round(Date.now() - Number(data.timestamp))));
               }
 
-              if (onTelemetryUpdate) {
-                onTelemetryUpdate({
+              if (onTelemetryUpdateRef.current) {
+                onTelemetryUpdateRef.current({
                   ...data,
                   status: resolvedStatus as OcclusionStatus,
                   occlusion_ratio: ratioVal ?? 0,
@@ -382,7 +401,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
         cancelAnimationFrame(simAnimIdRef.current);
       }
     };
-  }, [startSimulation, onTelemetryUpdate]);
+  }, []);
 
   return (
     <div className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-slate-800/80 shadow-2xl flex items-center justify-center select-none group font-sans">

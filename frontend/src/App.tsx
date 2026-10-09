@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ROI,
   StreamSource,
@@ -192,7 +192,10 @@ export const App: React.FC = () => {
     initRoi();
   }, [selectedCamera]);
 
-  const handleTelemetryUpdate = (data: FrameTelemetry) => {
+  const selectedCameraRef = useRef(selectedCamera);
+  selectedCameraRef.current = selectedCamera;
+
+  const handleTelemetryUpdate = useCallback((data: FrameTelemetry) => {
     const rawStatus = (data as any).status;
     const safeStatus: OcclusionStatus =
       typeof rawStatus === 'string'
@@ -205,10 +208,10 @@ export const App: React.FC = () => {
       ...prev,
       ...data,
       status: safeStatus,
-      camera_name: selectedCamera.name,
-      location: selectedCamera.location,
+      camera_name: selectedCameraRef.current.name,
+      location: selectedCameraRef.current.location,
     }));
-  };
+  }, []);
 
   const handleOpenRadioForCurrent = () => {
     setRadioModalPayload({
@@ -330,9 +333,8 @@ export const App: React.FC = () => {
 
         {/* Main View Router */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8">
-          {activeTab === 'monitoring' && (
-            /* LIVE MONITORING VIEW */
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* LIVE MONITORING VIEW (Kept mounted so stream & telemetry continue across tabs) */}
+          <div className={activeTab === 'monitoring' ? 'grid grid-cols-1 lg:grid-cols-12 gap-6 items-start' : 'hidden'}>
               {/* LEFT VIEWPORT: Camera feed + Contextual Controls (8 cols) */}
               <section className="lg:col-span-8 flex flex-col gap-4">
                 {/* Mobile Camera Dropdown & ROI Toggle Bar */}
@@ -538,7 +540,6 @@ export const App: React.FC = () => {
                 </button>
               </aside>
             </div>
-          )}
 
           {activeTab === 'weather' && (
             /* DEDICATED WEATHER INTELLIGENCE VIEW */

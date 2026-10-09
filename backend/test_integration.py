@@ -106,8 +106,13 @@ def test_websocket_stream():
 
             # 2. Test ping / pong interaction
             ws.send_text('{"type": "ping"}')
-            pong = ws.receive_json()
-            assert pong["type"] == "pong"
+            pong_received = False
+            for _ in range(5):
+                msg = ws.receive_json()
+                if msg.get("type") == "pong":
+                    pong_received = True
+                    break
+            assert pong_received, "Expected pong response from WebSocket server"
 
 
 if __name__ == "__main__":

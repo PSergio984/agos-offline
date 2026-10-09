@@ -47,4 +47,24 @@ describe('CameraFeed envelope guard', () => {
     });
     expect(onTelemetryUpdate).toHaveBeenCalledTimes(1);
   });
+
+  it('does not close and reconnect WebSocket when parent re-renders with new callback reference', async () => {
+    let updateFn = vi.fn();
+    const { rerender } = render(<CameraFeed roi={[0.2, 0.4, 0.8, 0.9]} onTelemetryUpdate={updateFn} />);
+    const ws = FakeWebSocket.last!;
+    expect(ws.close).not.toHaveBeenCalled();
+
+    // Simulate backend sending an initial message or stream tick
+    await act(async () => {
+      await ws.onmessage!({ data: JSON.stringify({ type: 'connected', status: 'CLEAR', occlusion_ratio: 0 }) });
+    });
+    expect(updateFn).toHaveBeenCalledTimes(1);
+
+    // Parent re-renders with new inline callback identity
+    const newUpdateFn = vi.fn();
+    rerender(<CameraFeed roi={[0.2, 0.4, 0.8, 0.9]} onTelemetryUpdate={newUpdateFn} />);
+
+    // Must NOT have closed the WebSocket
+    expect(ws.close).not.toHaveBeenCalled();
+  });
 });
