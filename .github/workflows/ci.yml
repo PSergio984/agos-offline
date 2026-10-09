@@ -49,7 +49,7 @@ jobs:
 
       - name: Run linter with ruff
         run: |
-          ruff check backend/app backend/tests
+          ruff check --config ruff.toml backend/app backend/tests
 
       - name: Run tests with pytest
         env:

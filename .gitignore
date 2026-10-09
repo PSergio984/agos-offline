@@ -44,5 +44,12 @@ backend/app/ml/weights/best.previous.*.onnx
 
 # ML ingestion caches
 ml_pipeline/dataset_cache/
+ml_pipeline/dataset_quick/
+ml_pipeline/quick_train.py
+ml_pipeline/DATASET_LICENSES_QUICK.md
 ml_pipeline/runs/
 ml_pipeline/*.pt
+
+# Agent workspace caches
+.agents/
+
