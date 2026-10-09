@@ -1,0 +1,38 @@
+# Dataset source registry for the AGOS ML pipeline.
+# Every source MUST declare a licence. A missing/empty licence is a hard error;
+# a licence outside the allowlist (see sources.py) excludes the source.
+# Per-image licences (TACO/Flickr, Wikimedia Commons) are verified at download
+# time and stored as evidence; the values below are only the declared licence of
+# the annotations / dataset as a whole.
+sources:
+  taco:
+    kind: coco
+    description: "TACO: Trash Annotations in Context (litter, COCO format)"
+    homepage: https://github.com/pedropro/TACO
+    annotations_url: https://raw.githubusercontent.com/pedropro/TACO/master/data/annotations.json
+    licence: "CC BY 4.0"            # annotations; images are filtered per Flickr licence
+    per_image_licence: true
+    role: positive
+  commons_negatives:
+    kind: images
+    description: "Wikimedia Commons drain/gutter/road/canal photos used as clean negatives"
+    homepage: https://commons.wikimedia.org
+    api_url: https://commons.wikimedia.org/w/api.php
+    licence: "per-file (CC0 / CC BY / public domain only)"
+    per_image_licence: true
+    role: negative
+    categories:
+      - Storm drains
+      - Street gutters
+      - Drains
+      - Culverts
+      - Roads in the Philippines
+      - Canals
+  roboflow:
+    kind: yolo
+    description: "Roboflow Universe public datasets (only when ROBOFLOW_API_KEY is set)"
+    homepage: https://universe.roboflow.com
+    licence: "per-project (CC BY 4.0 / CC0 / MIT / Apache-2.0 only)"
+    per_image_licence: false
+    role: positive
+    requires_env: ROBOFLOW_API_KEY
