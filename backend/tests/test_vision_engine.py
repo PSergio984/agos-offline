@@ -6,6 +6,8 @@ import numpy as np
 
 from app.ml.inference import Detection, YOLOInference, draw_annotations
 from app.ml.occlusion import (
+    DEFAULT_CLEAR_THRESHOLD,
+    DEFAULT_CRITICAL_THRESHOLD,
     OcclusionStatus,
     TemporalOcclusionFilter,
     compute_occlusion,
@@ -54,47 +56,115 @@ def test_preprocessing_and_synthetic_inference(weights_path: Path):
     assert isinstance(detections, list)
 
 
+def _original_coverage_pct(boxes, frame_w):
+    """Reference copy of the original system's _compute_coverage_pct (union of x-spans / frame width)."""
+    spans = []
+    for x1, y1, x2, y2 in boxes:
+        x1i, x2i = max(0, int(x1)), min(frame_w, int(x2))
+        if x2i > x1i and y2 > y1:
+            spans.append((x1i, x2i))
+    spans.sort()
+    merged = []
+    for start, end in spans:
+        if not merged or start > merged[-1][1]:
+            merged.append([start, end])
+        else:
+            merged[-1][1] = max(merged[-1][1], end)
+    return round(100.0 * sum(e - s for s, e in merged) / frame_w, 2) if merged else 0.0
+
+
 def test_occlusion_geometry():
-    """Test 3: Grate occlusion raster geometry, overlapping union area math, and normalized/polygon ROIs."""
+    """Test 3: Width-span coverage: merged horizontal span of debris clipped to the ROI x-range / ROI width."""
+    assert DEFAULT_CLEAR_THRESHOLD == 20.0
+    assert DEFAULT_CRITICAL_THRESHOLD == 60.0
+
     frame_shape = (1000, 1000)
-    roi = [200, 200, 600, 600]  # 400x400 = 160,000 px
+    roi = [200, 200, 600, 600]  # 400 px wide
 
-    # Sub-case 3.1: Zero debris
-    res_clear = compute_occlusion(roi=roi, debris_boxes=[], frame_shape=frame_shape)
-    assert res_clear.ratio == 0.0
-    assert res_clear.status == OcclusionStatus.CLEAR
+    # No boxes
+    res = compute_occlusion(roi=roi, debris_boxes=[], frame_shape=frame_shape)
+    assert res.ratio == 0.0
+    assert res.covered_width == 0.0
+    assert res.status == OcclusionStatus.CLEAR
 
-    # Sub-case 3.2: 30% coverage (WARNING)
-    box_30 = [200, 200, 600, 320]
-    res_warning = compute_occlusion(roi=roi, debris_boxes=[box_30], frame_shape=frame_shape)
-    assert abs(res_warning.ratio - 30.0) < 0.5
-    assert res_warning.status == OcclusionStatus.WARNING
+    # One box: 120 of 400 columns -> 30% (WARNING); height does not matter
+    res = compute_occlusion(roi=roi, debris_boxes=[[200, 200, 320, 600]], frame_shape=frame_shape)
+    assert res.ratio == 30.0
+    assert res.covered_width == 120.0
+    assert res.status == OcclusionStatus.WARNING
+    assert res.to_dict()["covered_width"] == 120.0
+    short = compute_occlusion(roi=roi, debris_boxes=[[200, 400, 320, 420]], frame_shape=frame_shape)
+    assert short.ratio == 30.0
 
-    # Sub-case 3.3: Overlapping debris boxes (exact union calculation)
-    # Box A: [200, 200, 400, 400], Box B: [300, 200, 500, 400]
-    # Union area = 40,000 + 40,000 - 20,000 = 60,000 px -> 60,000 / 160,000 = 37.5%
-    res_overlap = compute_occlusion(
+    # 20% is WARNING (clear is strictly below 20), 19.75% is CLEAR
+    assert compute_occlusion(roi=roi, debris_boxes=[[200, 300, 280, 400]], frame_shape=frame_shape).status == OcclusionStatus.WARNING
+    assert compute_occlusion(roi=roi, debris_boxes=[[200, 300, 279, 400]], frame_shape=frame_shape).status == OcclusionStatus.CLEAR
+
+    # Overlapping spans merge without double counting: 200..500 = 300 px -> 75% (CRITICAL)
+    res = compute_occlusion(
         roi=roi,
         debris_boxes=[[200, 200, 400, 400], [300, 200, 500, 400]],
         frame_shape=frame_shape,
     )
-    assert abs(res_overlap.ratio - 37.5) < 0.5
+    assert res.ratio == 75.0
+    assert res.covered_width == 300.0
+    assert res.status == OcclusionStatus.CRITICAL
+    assert res.debris_count == 2
+    assert len(res.intersecting_boxes) == 2
 
-    # Sub-case 3.4: 75% coverage (CRITICAL)
-    box_75 = [200, 200, 600, 500]
-    res_critical = compute_occlusion(roi=roi, debris_boxes=[box_75], frame_shape=frame_shape)
-    assert abs(res_critical.ratio - 75.0) < 0.5
-    assert res_critical.status == OcclusionStatus.CRITICAL
+    # Tall and short boxes in the same columns count once: 250..450 = 200 px -> 50%
+    res = compute_occlusion(
+        roi=roi,
+        debris_boxes=[[250, 200, 450, 600], [250, 300, 450, 350]],
+        frame_shape=frame_shape,
+    )
+    assert res.ratio == 50.0
 
-    # Sub-case 3.5: Polygon ROI (trapezoid drainage grate)
+    # Boxes outside the ROI (left, right, above, below, edge-touching) are ignored
+    outside = [
+        [20, 250, 150, 500],
+        [700, 250, 900, 500],
+        [250, 0, 500, 150],
+        [250, 700, 500, 900],
+        [250, 100, 500, 200],
+        [600, 250, 800, 500],
+    ]
+    res = compute_occlusion(roi=roi, debris_boxes=outside, frame_shape=frame_shape)
+    assert res.ratio == 0.0
+    assert res.covered_width == 0.0
+    assert res.intersecting_boxes == []
+    assert res.status == OcclusionStatus.CLEAR
+
+    # Partly outside boxes are clipped to the ROI x-range: 100..300 -> 200..300 = 25%
+    res = compute_occlusion(roi=roi, debris_boxes=[[100, 250, 300, 500]], frame_shape=frame_shape)
+    assert res.ratio == 25.0
+    res = compute_occlusion(roi=roi, debris_boxes=[[500, 250, 900, 500]], frame_shape=frame_shape)
+    assert res.ratio == 25.0
+
+    # Full-frame ROI equals the original system's number
+    full_frame = (720, 1280)
+    boxes = [
+        [10.7, 100, 300.9, 200],
+        [250.2, 300, 640.5, 400],
+        [1200, 0, 1400, 100],
+        [700, 50, 760, 60],
+    ]
+    res = compute_occlusion(roi=[0.0, 0.0, 1.0, 1.0], debris_boxes=boxes, frame_shape=full_frame)
+    assert res.ratio == _original_coverage_pct(boxes, 1280)
+    assert res.ratio > 0.0
+    res = compute_occlusion(roi=[0, 0, 1280, 720], debris_boxes=boxes, frame_shape=full_frame)
+    assert res.ratio == _original_coverage_pct(boxes, 1280)
+
+    # Polygon ROI uses its bounding rect (x 200..600, y 200..500)
     poly_roi = [[200, 200], [600, 200], [500, 500], [300, 500]]
-    res_poly = compute_occlusion(roi=poly_roi, debris_boxes=[box_75], frame_shape=frame_shape)
-    assert res_poly.ratio > 0.0
+    res = compute_occlusion(roi=poly_roi, debris_boxes=[[250, 250, 350, 400]], frame_shape=frame_shape)
+    assert res.ratio == 25.0
+    res = compute_occlusion(roi=poly_roi, debris_boxes=[[400, 520, 600, 600]], frame_shape=frame_shape)
+    assert res.ratio == 0.0
 
-    # Sub-case 3.6: Normalized coordinates ROI [0.2, 0.2, 0.6, 0.6]
-    norm_roi = [0.2, 0.2, 0.6, 0.6]
-    res_norm = compute_occlusion(roi=norm_roi, debris_boxes=[box_30], frame_shape=(1000, 1000))
-    assert abs(res_norm.ratio - 30.0) < 0.5
+    # Normalized ROI [0.2, 0.2, 0.6, 0.6]
+    res = compute_occlusion(roi=[0.2, 0.2, 0.6, 0.6], debris_boxes=[[200, 200, 320, 600]], frame_shape=(1000, 1000))
+    assert abs(res.ratio - 30.0) < 0.5
 
 
 def test_temporal_smoothing_filter():

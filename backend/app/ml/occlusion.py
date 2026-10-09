@@ -1,8 +1,9 @@
 """Occlusion computation engine and temporal smoothing filter for AGOS-Offline.
 
-Calculates the percentage of the calibrated Grate Region of Interest (ROI)
-occluded by detected debris objects and applies a 2-of-3 temporal hysteresis
-filter to prevent transient false alarms.
+Calculates the width coverage of the calibrated Region of Interest (ROI) by
+detected debris objects (merged horizontal span of the debris boxes, clipped to
+the ROI x-range, divided by the ROI width) and applies a 2-of-3 temporal
+hysteresis filter to prevent transient false alarms.
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Sequence, Union
 
-import cv2
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -22,13 +22,13 @@ logger = logging.getLogger(__name__)
 class OcclusionStatus(str, Enum):
     """Occlusion alert classification tiers."""
 
-    CLEAR = "CLEAR"          # < 25% occlusion: normal runoff flow
-    WARNING = "WARNING"      # 25% - 59.9% occlusion: maintenance advised
-    CRITICAL = "CRITICAL"    # >= 60% occlusion: urgent blockage risk
+    CLEAR = "CLEAR"          # < 20% coverage: normal runoff flow
+    WARNING = "WARNING"      # 20% - 59.9% coverage: maintenance advised
+    CRITICAL = "CRITICAL"    # >= 60% coverage: urgent blockage risk
 
 
 # Default fallback thresholds (matching CONTEXT.md and config.py)
-DEFAULT_CLEAR_THRESHOLD = 25.0
+DEFAULT_CLEAR_THRESHOLD = 20.0
 DEFAULT_CRITICAL_THRESHOLD = 60.0
 
 
@@ -41,7 +41,7 @@ def classify_occlusion(
 
     Args:
         ratio: Occlusion ratio in range [0.0, 100.0].
-        clear_threshold: Upper bound for CLEAR status (exclusive). Default 25.0%.
+        clear_threshold: Upper bound for CLEAR status (exclusive). Default 20.0%.
         critical_threshold: Lower bound for CRITICAL status (inclusive). Default 60.0%.
 
     Returns:
@@ -64,6 +64,7 @@ class OcclusionResult:
     union_area: float
     debris_count: int
     intersecting_boxes: list[list[float]] = field(default_factory=list)
+    covered_width: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         """Convert result to JSON-serializable dictionary."""
@@ -74,6 +75,7 @@ class OcclusionResult:
             "union_area": round(self.union_area, 2),
             "debris_count": self.debris_count,
             "intersecting_boxes": self.intersecting_boxes,
+            "covered_width": round(self.covered_width, 2),
         }
 
 
@@ -134,25 +136,29 @@ def compute_occlusion(
     clear_threshold: float = DEFAULT_CLEAR_THRESHOLD,
     critical_threshold: float = DEFAULT_CRITICAL_THRESHOLD,
 ) -> OcclusionResult:
-    """Compute the grate occlusion ratio between detected debris boxes and the ROI.
+    """Compute the width coverage of the ROI by detected debris boxes.
 
-    Uses geometric raster mask rendering over the ROI bounding area to calculate
-    the exact union area of overlapping debris boxes without double-counting
-    overlapping debris detections.
+    Only boxes that overlap the ROI vertically count; their box height is
+    otherwise ignored. Their horizontal spans are clipped to the ROI x-range
+    and merged, so overlapping boxes and boxes stacked in the same columns are
+    counted once. With the ROI set to the full frame this matches the original
+    AGOS system (union of x-spans / frame width).
 
     Formula:
-        Occlusion ratio = (Union area of debris boxes overlapping ROI) / (Total Area of ROI) * 100
+        Coverage = (merged debris x-span inside the ROI) / (ROI width) * 100
 
     Args:
-        roi: Calibrated Grate ROI as normalized [x1, y1, x2, y2], pixel box, or polygon vertices.
+        roi: Calibrated ROI as normalized [x1, y1, x2, y2], pixel box, or polygon vertices
+             (a polygon is reduced to its bounding rectangle).
         debris_boxes: List of detected debris bounding boxes [x1, y1, x2, y2] in pixel coords
                       or dicts with a 'box' key.
         frame_shape: Frame dimensions as (height, width).
-        clear_threshold: Upper limit for CLEAR status (default 25.0%).
+        clear_threshold: Upper limit for CLEAR status (default 20.0%).
         critical_threshold: Lower limit for CRITICAL status (default 60.0%).
 
     Returns:
-        OcclusionResult with ratio, status, areas, and intersecting box information.
+        OcclusionResult with ratio (coverage %), status, covered_width and the boxes counted.
+        roi_area is the ROI rectangle area and union_area the covered columns times the ROI height.
     """
     height, width = frame_shape[:2]
     if height <= 0 or width <= 0:
@@ -160,14 +166,11 @@ def compute_occlusion(
 
     roi_pts, _ = _parse_roi(roi, width, height)
 
-    # Compute bounding rect for ROI to minimize mask memory and execution time
-    rx, ry, rw, rh = cv2.boundingRect(roi_pts)
-
-    # Clip ROI rect to frame bounds
-    rx1 = max(0, rx)
-    ry1 = max(0, ry)
-    rx2 = min(width, rx + rw)
-    ry2 = min(height, ry + rh)
+    # Bounding rect of the ROI (box or polygon), clipped to the frame
+    rx1 = max(0, int(roi_pts[:, 0].min()))
+    ry1 = max(0, int(roi_pts[:, 1].min()))
+    rx2 = min(width, int(roi_pts[:, 0].max()))
+    ry2 = min(height, int(roi_pts[:, 1].max()))
 
     roi_w = rx2 - rx1
     roi_h = ry2 - ry1
@@ -175,29 +178,11 @@ def compute_occlusion(
     if roi_w <= 0 or roi_h <= 0:
         return OcclusionResult(0.0, OcclusionStatus.CLEAR, 0.0, 0.0, 0)
 
-    # Shift ROI polygon coordinates into local ROI bounding rectangle space
-    local_roi_pts = roi_pts.copy()
-    local_roi_pts[:, 0] -= rx1
-    local_roi_pts[:, 1] -= ry1
-
-    # Render ROI mask in local coordinate space
-    roi_mask = np.zeros((roi_h, roi_w), dtype=np.uint8)
-    cv2.fillPoly(roi_mask, [local_roi_pts], 255)
-    roi_area = float(np.count_nonzero(roi_mask))
-
-    if roi_area <= 0.0:
-        return OcclusionResult(0.0, OcclusionStatus.CLEAR, 0.0, 0.0, 0)
-
-    # Render debris boxes into local debris mask
-    debris_mask = np.zeros((roi_h, roi_w), dtype=np.uint8)
+    spans: list[tuple[int, int]] = []
     intersecting_boxes: list[list[float]] = []
 
     for item in debris_boxes:
-        if isinstance(item, dict) and "box" in item:
-            box = item["box"]
-        else:
-            box = item
-
+        box = item["box"] if isinstance(item, dict) and "box" in item else item
         bx1, by1, bx2, by2 = float(box[0]), float(box[1]), float(box[2]), float(box[3])
 
         # If debris box is normalized, scale to frame coordinates
@@ -207,36 +192,38 @@ def compute_occlusion(
             bx2 *= width
             by2 *= height
 
-        # Compute intersection between debris box and ROI bounding rectangle
-        inter_x1 = max(rx1, bx1)
-        inter_y1 = max(ry1, by1)
-        inter_x2 = min(rx2, bx2)
-        inter_y2 = min(ry2, by2)
+        # Box must overlap the ROI vertically; its height is otherwise ignored
+        if by2 <= by1 or by2 <= ry1 or by1 >= ry2:
+            continue
 
-        if inter_x2 > inter_x1 and inter_y2 > inter_y1:
-            # Shift to local coordinates
-            lx1 = int(round(inter_x1 - rx1))
-            ly1 = int(round(inter_y1 - ry1))
-            lx2 = int(round(inter_x2 - rx1))
-            ly2 = int(round(inter_y2 - ry1))
-
-            cv2.rectangle(debris_mask, (lx1, ly1), (lx2, ly2), 255, thickness=-1)
+        # Clip the horizontal span to the ROI x-range (integer columns, as in the original system)
+        sx1 = max(rx1, int(bx1))
+        sx2 = min(rx2, int(bx2))
+        if sx2 > sx1:
+            spans.append((sx1, sx2))
             intersecting_boxes.append([round(bx1, 1), round(by1, 1), round(bx2, 1), round(by2, 1)])
 
-    # Exact union area of debris intersecting the ROI
-    overlap_mask = cv2.bitwise_and(roi_mask, debris_mask)
-    union_area = float(np.count_nonzero(overlap_mask))
+    # Merge overlapping spans so shared columns count once
+    spans.sort()
+    merged: list[list[int]] = []
+    for start, end in spans:
+        if not merged or start > merged[-1][1]:
+            merged.append([start, end])
+        else:
+            merged[-1][1] = max(merged[-1][1], end)
+    covered_width = float(sum(end - start for start, end in merged))
 
-    ratio = min(100.0, max(0.0, (union_area / roi_area) * 100.0))
+    ratio = min(100.0, max(0.0, round(100.0 * covered_width / roi_w, 2)))
     status = classify_occlusion(ratio, clear_threshold, critical_threshold)
 
     return OcclusionResult(
-        ratio=round(ratio, 2),
+        ratio=ratio,
         status=status,
-        roi_area=round(roi_area, 2),
-        union_area=round(union_area, 2),
+        roi_area=float(roi_w * roi_h),
+        union_area=covered_width * roi_h,
         debris_count=len(debris_boxes),
         intersecting_boxes=intersecting_boxes,
+        covered_width=covered_width,
     )
 
 
