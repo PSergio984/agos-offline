@@ -4,14 +4,26 @@
 # Per-image licences (TACO/Flickr, Wikimedia Commons) are verified at download
 # time and stored as evidence; the values below are only the declared licence of
 # the annotations / dataset as a whole.
+# Relative local_path values resolve against this file's directory.
 sources:
   taco:
     kind: coco
     description: "TACO: Trash Annotations in Context (litter, COCO format)"
     homepage: https://github.com/pedropro/TACO
     annotations_url: https://raw.githubusercontent.com/pedropro/TACO/master/data/annotations.json
+    local_path: ../../TACO/data      # user's existing checkout, treated read-only
+    licence_resolver: taco_flickr    # per-image Flickr page licence, cached; only CC BY 2.0 / CC0 / PD kept
     licence: "CC BY 4.0"            # annotations; images are filtered per Flickr licence
     per_image_licence: true
+    role: positive
+  mrs_trash_detection:
+    kind: yolo
+    description: "MRS Trash Detection (urban garbage, 10 material classes collapsed to debris)"
+    homepage: https://huggingface.co/datasets/alexNova/MRS-Trash-Detection
+    attribution: "YizheDev (ModelScope trash_detection, Apache License 2.0); HF re-upload by alexNova (Apache-2.0)"
+    hf_repo: alexNova/MRS-Trash-Detection   # card licence re-checked at download time
+    licence: Apache-2.0                     # HF card + upstream https://www.modelscope.cn/datasets/YizheDev/trash_detection
+    max_images: 1100
     role: positive
   commons_negatives:
     kind: images
@@ -20,6 +32,7 @@ sources:
     api_url: https://commons.wikimedia.org/w/api.php
     licence: "per-file (CC0 / CC BY / public domain only)"
     per_image_licence: true
+    max_images: 160
     role: negative
     categories:
       - Storm drains
@@ -28,11 +41,17 @@ sources:
       - Culverts
       - Roads in the Philippines
       - Canals
+      - Manhole covers
+      - Gutters
+      - Sidewalks
+      - Streets in the Philippines
   roboflow:
     kind: yolo
     description: "Roboflow Universe public datasets (only when ROBOFLOW_API_KEY is set)"
     homepage: https://universe.roboflow.com
     licence: "per-project (CC BY 4.0 / CC0 / MIT / Apache-2.0 only)"
-    per_image_licence: false
+    per_image_licence: true         # gate passes; each project licence is checked from the API
     role: positive
     requires_env: ROBOFLOW_API_KEY
+    projects:
+      - {workspace: physical-ai, project: plastic-bottle-bliqt-fufyc, version: 1}

@@ -367,3 +367,78 @@ def fetch_roboflow(dest: Path, workspace: str, project: str, version: int) -> Op
         z.extractall(dest)
     (dest / "licences.json").write_text(json.dumps({"project": f"{workspace}/{project}", "license": lic}), encoding="utf-8")
     return {"source": f"roboflow:{workspace}/{project}", "downloaded": -1, "license": lic, "rejected": {}}
+
+
+# --------------------------------------------------------------------------- TACO licences (local checkout)
+
+def taco_flickr_licences(images: list[dict[str, Any]], cache_path: Path, allow_network: bool, workers: int = 2) -> dict[str, dict[str, Any]]:
+    """Per-image licence evidence for a local TACO checkout, keyed by COCO file_name.
+
+    Reads the Flickr photo page licence (no image download). Results are cached in `cache_path`;
+    failed lookups are not cached. With allow_network=False only the cache is used.
+    """
+    cache: dict[str, dict[str, Any]] = {}
+    if cache_path.is_file():
+        cache = json.loads(cache_path.read_text(encoding="utf-8"))
+    todo = [im for im in images if im["file_name"] not in cache]
+    if allow_network and todo:
+        def check(im: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+            time.sleep(0.4)
+            try:
+                return im, _flickr_photo_licence(im["flickr_url"])
+            except Exception as e:  # noqa: BLE001
+                return im, {"error": type(e).__name__}
+
+        with ThreadPoolExecutor(workers) as pool:
+            for n, (im, ev) in enumerate(pool.map(check, todo), 1):
+                if "error" not in ev:
+                    ev["canonical_license"] = FLICKR_LICENSES.get(str(ev.get("flickr_license_id")))
+                    ev["attribution"] = f"Flickr user {ev.get('owner_nsid')}"
+                    cache[im["file_name"]] = ev
+                if n % 25 == 0:
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    cache_path.write_text(json.dumps(cache), encoding="utf-8")
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(cache), encoding="utf-8")
+    return cache
+
+
+# --------------------------------------------------------------------------- Hugging Face YOLO datasets
+
+def fetch_hf_yolo(dest: Path, repo: str, max_images: int, seed: int = 0, workers: int = 8) -> dict[str, Any]:
+    """Download a random subset of a Hugging Face YOLO-layout dataset (images/<split>/, labels/<split>/).
+
+    The licence is read from the dataset card at download time and must be on the allowlist,
+    otherwise nothing is downloaded. Writes dest/images, dest/labels and dest/licences.json.
+    """
+    import random
+
+    info = json.loads(http_get(f"https://huggingface.co/api/datasets/{repo}"))
+    lic = (info.get("cardData") or {}).get("license")
+    if not is_allowed(lic):
+        raise SystemExit(f"HF dataset {repo}: licence {lic!r} not in allowlist")
+    files = [s["rfilename"] for s in info.get("siblings", [])]
+    labels = set(files)
+    imgs = [f for f in files if f.startswith("images/") and Path(f).suffix.lower() in (".jpg", ".jpeg", ".png")
+            and "labels/" + f.split("/", 1)[1].rsplit(".", 1)[0] + ".txt" in labels]
+    random.Random(seed).shuffle(imgs)
+    imgs = imgs[:max_images]
+
+    def get(rel: str) -> bool:
+        out = dest / rel
+        if out.is_file():
+            return True
+        try:
+            data = http_get(f"https://huggingface.co/datasets/{repo}/resolve/main/{urllib.parse.quote(rel)}", timeout=120)
+        except Exception:  # noqa: BLE001
+            return False
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(data)
+        return True
+
+    jobs = [r for f in imgs for r in (f, "labels/" + f.split("/", 1)[1].rsplit(".", 1)[0] + ".txt")]
+    with ThreadPoolExecutor(workers) as pool:
+        ok = sum(pool.map(get, jobs))
+    card_url = f"https://huggingface.co/datasets/{repo}"
+    (dest / "licences.json").write_text(json.dumps({"license": lic, "card_url": card_url, "repo": repo, "files_ok": ok}), encoding="utf-8")
+    return {"license": lic, "card_url": card_url, "downloaded": len(imgs)}

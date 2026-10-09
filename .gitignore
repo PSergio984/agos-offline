@@ -41,3 +41,8 @@ ml_pipeline/venv-train/
 ml_pipeline/baseline_data/
 ml_pipeline/dataset_public/
 backend/app/ml/weights/best.previous.*.onnx
+
+# ML ingestion caches
+ml_pipeline/dataset_cache/
+ml_pipeline/runs/
+ml_pipeline/*.pt
