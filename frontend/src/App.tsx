@@ -5,6 +5,7 @@ import {
   FrameTelemetry,
   Incident,
   OcclusionStatus,
+  WeatherSnapshot,
 } from './types';
 import { CameraFeed } from './components/CameraFeed';
 import { ROIEditor } from './components/ROIEditor';
@@ -16,16 +17,17 @@ import { Sidebar, NavTabId } from './components/Sidebar';
 import { WeatherView } from './components/WeatherView';
 import { DiagnosticsView } from './components/DiagnosticsView';
 import { RespondersView } from './components/RespondersView';
+import Container, { ContainerHeader } from './components/ui/Container';
 import { loadROI, fetchWeather, fetchSyncStatus } from './services/api';
 import { sirenSynthesizer } from './services/audioSiren';
 import { useTheme } from './context/useTheme';
+import { getWeatherIcon, getWeatherDescription, getRainTier } from './utils/weather';
 import {
   Sliders,
   Radio,
   Clock,
-  Layers,
+  AlertTriangle,
   ChevronDown,
-  Gauge,
   Sun,
   Moon,
 } from 'lucide-react';
@@ -36,6 +38,23 @@ interface CameraOption {
   location: string;
   defaultRoi: ROI;
 }
+
+const MapPinFilled = ({ className }: { className?: string }) => (
+  <svg
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+  >
+    <path
+      d="M12 2C7.58 2 4 5.58 4 10c0 5.25 8 13 8 13s8-7.75 8-13c0-4.42-3.58-8-8-8zm0 10.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"
+      fill="currentColor"
+    />
+    <circle cx="12" cy="10" r="2" fill="white" />
+  </svg>
+);
 
 const CAMERAS: CameraOption[] = [
   {
@@ -94,19 +113,21 @@ export const App: React.FC = () => {
     location: CAMERAS[0].location,
     hysteresis_ratio: '3/3 frames',
     trash_count: 3,
-    pond_level_cm: 14.5,
     store_and_forward_queue_size: 0,
   });
 
   // Radio Dispatch Modal
   const [isRadioModalOpen, setIsRadioModalOpen] = useState<boolean>(false);
   const [radioModalPayload, setRadioModalPayload] = useState<{
+    incidentId?: string;
     cameraName: string;
     cameraId: string;
     location: string;
     occlusionRatio: number;
     status: string;
     debrisTypes: string[];
+    initialRadioTicket?: string | null;
+    targetGroupId?: string;
   }>({
     cameraName: CAMERAS[0].name,
     cameraId: CAMERAS[0].id,
@@ -114,21 +135,14 @@ export const App: React.FC = () => {
     occlusionRatio: 64.2,
     status: 'CRITICAL BLOCKED',
     debrisTypes: ['Plastic Sacks', 'Vegetation Cluster', 'Plastic Bottles'],
+    targetGroupId: 'grp-drainage',
   });
 
   // Audio Siren Master State
   const [isSirenMuted, setIsSirenMuted] = useState<boolean>(false);
 
   // Weather & Cloud Sync State
-  const [weather, setWeather] = useState<{
-    is_online: boolean;
-    rainfall_mm: number;
-    condition: string;
-    message: string;
-    temperature_c: number | null;
-    humidity_pct: number | null;
-    weather_code?: number | null;
-  }>({
+  const [weather, setWeather] = useState<WeatherSnapshot>({
     is_online: false,
     rainfall_mm: 0.0,
     condition: 'Offline Mode',
@@ -226,18 +240,21 @@ export const App: React.FC = () => {
       occlusionRatio: telemetry.occlusion_ratio,
       status: telemetry.status,
       debrisTypes: telemetry.detections.map((d) => d.label),
+      targetGroupId: (selectedCamera as any).target_group_id,
     });
     setIsRadioModalOpen(true);
   };
 
   const handleOpenRadioForIncident = (inc: Incident) => {
     setRadioModalPayload({
+      incidentId: inc.id,
       cameraName: inc.camera_name,
       cameraId: inc.camera_id,
       location: inc.location,
       occlusionRatio: inc.occlusion_ratio,
       status: inc.status,
       debrisTypes: inc.debris_types,
+      initialRadioTicket: inc.radio_ticket,
     });
     setIsRadioModalOpen(true);
   };
@@ -250,9 +267,12 @@ export const App: React.FC = () => {
 
   const isCritical = telemetry.status === 'CRITICAL' || telemetry.status === 'CRITICAL BLOCKED';
   const isWarning = telemetry.status === 'WARNING';
+  const isRainHazard = weather.rain_hazard?.active ?? false;
+  const WeatherIcon = getWeatherIcon(weather.weather_code);
+  const rainTier = getRainTier(weather.rainfall_mm);
 
   return (
-    <div className="min-h-screen bg-[#F0F4F8] dark:bg-[#050B14] text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-300">
+    <div className="min-h-screen bg-background dark:bg-dark-gradient bg-fixed text-slate-900 dark:text-slate-200 flex flex-col font-sans transition-colors duration-300">
       {/* 1. COLLAPSIBLE DESKTOP SIDEBAR (matching agos-admin) */}
       <Sidebar
         isCollapsed={isSidebarCollapsed}
@@ -272,7 +292,7 @@ export const App: React.FC = () => {
         }`}
       >
         {/* Streamlined Contextual Top Header */}
-        <header className="sticky top-0 z-30 h-16 bg-white/80 dark:bg-[#050B14]/85 backdrop-blur-md border-b border-slate-200 dark:border-slate-800/80 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 transition-colors">
+        <header className="sticky top-0 z-30 h-16 bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl border-b border-white/50 dark:border-white/10 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 transition-all duration-300">
           {/* Left: View Title & Context Controls */}
           <div className="flex items-center gap-3 min-w-0">
             <h1 className="font-bold text-base sm:text-lg text-slate-900 dark:text-white tracking-tight truncate">
@@ -287,6 +307,16 @@ export const App: React.FC = () => {
                 : 'System Diagnostics'}
             </h1>
 
+            {/* Location chip (agos-admin style) */}
+            <div className="hidden md:flex items-center gap-2 border-r-2 border-gray-400 dark:border-slate-700 pr-4 mr-1">
+              <div className="bg-red-100 dark:bg-red-900/30 p-1.5 rounded-lg">
+                <MapPinFilled className="text-red-500" />
+              </div>
+              <span className="font-semibold text-sm md:text-base truncate">
+                {weather.location ?? 'Valenzuela City'}
+              </span>
+            </div>
+
             {/* Contextual Camera Dropdown (shown on monitoring) */}
             {activeTab === 'monitoring' && (
               <div className="relative min-w-[240px] hidden sm:block">
@@ -296,7 +326,7 @@ export const App: React.FC = () => {
                     const found = CAMERAS.find((c) => c.id === e.target.value);
                     if (found) setSelectedCamera(found);
                   }}
-                  className="w-full bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-700/70 text-slate-800 dark:text-slate-200 rounded-xl pl-3 pr-8 py-1.5 text-xs font-medium focus:outline-none focus:border-teal-500 appearance-none cursor-pointer shadow-xs"
+                  className="w-full bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-white/10 text-slate-800 dark:text-slate-200 rounded-xl pl-3 pr-8 py-1.5 text-xs font-medium focus:outline-none focus:border-teal-500 appearance-none cursor-pointer shadow-xs"
                 >
                   {CAMERAS.map((cam) => (
                     <option key={cam.id} value={cam.id}>
@@ -318,21 +348,46 @@ export const App: React.FC = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold shadow-md shadow-rose-950/50 transition-all cursor-pointer animate-pulse"
               >
                 <Radio className="w-3.5 h-3.5" />
-                <span>Radio Dispatch</span>
+                <span>Alert Responders</span>
               </button>
             )}
 
-            {/* Live Clock */}
-            <div className="flex items-center gap-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800/80">
-              <Clock className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-              <span>{currentTime || 'PST'}</span>
+            {/* Backend Connection Status (agos-admin style) */}
+            {weather.is_online ? (
+              <div className="flex items-center gap-2 border-green-400 dark:border-emerald-800/50 border bg-green-100 dark:bg-emerald-900/20 py-1.5 px-2.5 md:py-2 md:px-3 rounded-md">
+                <div className="bg-emerald-500 rounded-full w-3 h-3"></div>
+                <p className="text-emerald-600 dark:text-emerald-400 text-xs md:text-sm font-semibold">Online</p>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 border-amber-400 dark:border-amber-700/50 border bg-amber-100 dark:bg-amber-900/20 py-1.5 px-2.5 md:py-2 md:px-3 rounded-md">
+                <div className="bg-amber-500 rounded-full w-3 h-3 pulse-circle"></div>
+                <p className="text-amber-600 dark:text-amber-400 text-xs md:text-sm font-semibold">Offline Mode</p>
+              </div>
+            )}
+
+            {/* Live Clock (agos-admin TimeDisplay style) */}
+            <div className="hidden sm:flex items-center gap-2 text-sm border border-gray-300 dark:border-slate-700 px-3 py-2 rounded-lg bg-gray-50 dark:bg-slate-800/50">
+              <div className="border-r-2 border-gray-400 dark:border-slate-700 pr-3 mr-3">
+                <Clock className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="font-medium">{currentTime || 'PST'}</p>
+                <p>
+                  {new Date().toLocaleDateString('en-PH', {
+                    timeZone: 'Asia/Manila',
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </p>
+              </div>
             </div>
 
             {/* Top Bar Theme Toggle */}
             <button
               type="button"
               onClick={toggleTheme}
-              className="flex items-center justify-center p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-950/60 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-800/80 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer shadow-xs"
+              className="flex items-center justify-center p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] border border-slate-200/80 dark:border-white/10 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer shadow-xs"
               title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
               aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
             >
@@ -350,214 +405,321 @@ export const App: React.FC = () => {
         />
 
         {/* Main View Router */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 p-3 md:p-4 lg:p-5">
           {/* LIVE MONITORING VIEW (Kept mounted so stream & telemetry continue across tabs) */}
-          <div className={activeTab === 'monitoring' ? 'grid grid-cols-1 lg:grid-cols-12 gap-6 items-start' : 'hidden'}>
-              {/* LEFT VIEWPORT: Camera feed + Contextual Controls (8 cols) */}
-              <section className="lg:col-span-8 flex flex-col gap-4">
-                {/* Mobile Camera Dropdown & ROI Toggle Bar */}
-                <div className="flex sm:hidden items-center justify-between gap-2 bg-white/80 dark:bg-[#0B1526]/80 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-2.5">
-                  <div className="relative flex-1">
-                    <select
-                      value={selectedCamera.id}
-                      onChange={(e) => {
-                        const found = CAMERAS.find((c) => c.id === e.target.value);
-                        if (found) setSelectedCamera(found);
-                      }}
-                      className="w-full bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-700/70 text-slate-800 dark:text-slate-200 rounded-xl pl-3 pr-8 py-1.5 text-xs font-medium focus:outline-none appearance-none"
-                    >
-                      {CAMERAS.map((cam) => (
-                        <option key={cam.id} value={cam.id}>
-                          {cam.name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  </div>
+          <div className={activeTab === 'monitoring' ? 'flex flex-col xl:flex-row w-full gap-2' : 'hidden'}>
+            {/* LEFT VIEWPORT: Live feed (agos-admin VideoContainer look) */}
+            <Container headerTitle="Live Feed" className="flex-1">
+              {/* Camera identity + LIVE badge */}
+              <div className="flex items-center justify-between font-semibold mb-3">
+                <div className="bg-black/50 text-white px-2 py-1 md:px-3 md:py-1.5 rounded text-xs md:text-sm pointer-events-none truncate mr-2">
+                  {`${selectedCamera.name} | ${selectedCamera.location}`}
                 </div>
+                {activeStream.type !== 'demo' ? (
+                  <div className="flex items-center gap-2 border border-red-600 dark:border-red-800 bg-red-100 dark:bg-red-900/30 px-2.5 py-0.5 md:px-3.5 rounded shrink-0">
+                    <span className="bg-red-600 rounded-full w-2.5 h-2.5 md:w-3 md:h-3 animate-pulse"></span>
+                    <span className="text-red-600 dark:text-red-400 text-sm md:text-base">LIVE</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 border border-amber-400 dark:border-amber-700/50 bg-amber-100 dark:bg-amber-900/30 px-2.5 py-0.5 md:px-3.5 rounded shrink-0">
+                    <span className="bg-amber-500 rounded-full w-2.5 h-2.5 md:w-3 md:h-3"></span>
+                    <span className="text-amber-600 dark:text-amber-400 text-sm md:text-base">DEMO</span>
+                  </div>
+                )}
+              </div>
 
-                {/* Camera Canvas Viewport */}
-                <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800/80 bg-black shadow-2xl">
-                  <CameraFeed
-                    roi={currentRoi}
-                    showROIOverlay={showRoiOverlay}
-                    isROIEditing={isEditingRoi}
-                    onTelemetryUpdate={handleTelemetryUpdate}
-                    cameraId={selectedCamera.id}
-                    cameraName={selectedCamera.name}
-                  />
-
-                  {/* Interactive ROI Editor Overlay */}
-                  <ROIEditor
-                    isActive={isEditingRoi}
-                    initialROI={currentRoi}
-                    cameraId={selectedCamera.id}
-                    onSave={(newRoi) => {
-                      setCurrentRoi(newRoi);
+              {/* Mobile Camera Dropdown */}
+              <div className="flex sm:hidden items-center gap-2 bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl border border-white/50 dark:border-white/10 rounded-xl p-2.5 shadow-xl mb-3">
+                <div className="relative flex-1">
+                  <select
+                    value={selectedCamera.id}
+                    onChange={(e) => {
+                      const found = CAMERAS.find((c) => c.id === e.target.value);
+                      if (found) setSelectedCamera(found);
                     }}
-                    onClose={() => setIsEditingRoi(false)}
+                    className="w-full bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-white/10 text-slate-800 dark:text-slate-200 rounded-xl pl-3 pr-8 py-1.5 text-xs font-medium focus:outline-none appearance-none cursor-pointer"
+                  >
+                    {CAMERAS.map((cam) => (
+                      <option key={cam.id} value={cam.id}>
+                        {cam.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Camera Canvas Viewport */}
+              <div className="relative">
+                <CameraFeed
+                  roi={currentRoi}
+                  showROIOverlay={showRoiOverlay}
+                  isROIEditing={isEditingRoi}
+                  onTelemetryUpdate={handleTelemetryUpdate}
+                  cameraId={selectedCamera.id}
+                  cameraName={selectedCamera.name}
+                />
+
+                {/* Interactive ROI Editor Overlay */}
+                <ROIEditor
+                  isActive={isEditingRoi}
+                  initialROI={currentRoi}
+                  cameraId={selectedCamera.id}
+                  onSave={(newRoi) => {
+                    setCurrentRoi(newRoi);
+                  }}
+                  onClose={() => setIsEditingRoi(false)}
+                />
+              </div>
+
+              {/* Sub-feed toolbar: Ingestion Source & ROI Button */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mt-3">
+                <div className="flex-1">
+                  <StreamSelector
+                    cameraId={selectedCamera.id}
+                    activeSource={activeStream}
+                    onSourceChange={(source) => setActiveStream(source)}
                   />
                 </div>
 
-                {/* Sub-feed toolbar: Ingestion Source & ROI Button */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                  <div className="flex-1">
-                    <StreamSelector
-                      cameraId={selectedCamera.id}
-                      activeSource={activeStream}
-                      onSourceChange={(source) => setActiveStream(source)}
-                    />
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingRoi(!isEditingRoi)}
-                    className={`flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 rounded-2xl text-xs font-medium border transition-all cursor-pointer shrink-0 ${
-                      isEditingRoi
-                        ? 'bg-teal-500 text-slate-950 border-teal-400 shadow-md font-semibold'
-                        : 'bg-white hover:bg-slate-100 dark:bg-[#0B1526]/80 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800/80'
-                    }`}
-                    title="Calibrate Grate Region of Interest (ROI)"
-                  >
-                    <Sliders className={`w-3.5 h-3.5 ${isEditingRoi ? 'text-slate-950' : 'text-teal-500 dark:text-teal-400'}`} />
-                    <span>{isEditingRoi ? 'Exit ROI Editor' : 'Calibrate Grate ROI'}</span>
-                  </button>
-                </div>
-              </section>
-
-              {/* RIGHT SIDEBAR: Operative Metrics & Action (4 cols) */}
-              <aside className="lg:col-span-4 flex flex-col gap-5">
-                {/* Card 1: Grate Occlusion Gauge Card */}
-                <div className="bg-white/80 dark:bg-[#0B1526]/80 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-lg backdrop-blur-md">
-                  <div className="flex items-center justify-between pb-3.5 border-b border-slate-200 dark:border-slate-800/80">
-                    <div className="flex items-center gap-2.5">
-                      <Gauge className="w-5 h-5 text-teal-500 dark:text-teal-400" />
-                      <h3 className="font-bold text-sm text-slate-900 dark:text-white">Grate Occlusion</h3>
-                    </div>
-                    <span
-                      className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border uppercase tracking-wider ${
-                        isCritical
-                          ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
-                          : isWarning
-                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                      }`}
-                    >
-                      {String(telemetry.status || 'CLEAR')}
-                    </span>
-                  </div>
-
-                  {/* Occlusion Level Bar & Number */}
-                  <div className="py-5">
-                    <div className="flex items-baseline justify-between mb-2.5">
-                      <span className="text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                        {telemetry.occlusion_ratio.toFixed(1)}%
-                      </span>
-                      <span className="text-xs text-slate-500 dark:text-slate-400">
-                        Critical Threshold: ≥ 60.0%
-                      </span>
-                    </div>
-
-                    {/* Progress Track */}
-                    <div className="w-full h-3 bg-slate-200 dark:bg-slate-950 rounded-full overflow-hidden border border-slate-300 dark:border-slate-800 p-0.5 relative">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${
-                          isCritical
-                            ? 'bg-gradient-to-r from-amber-500 to-rose-500'
-                            : isWarning
-                            ? 'bg-gradient-to-r from-emerald-500 to-amber-500'
-                            : 'bg-gradient-to-r from-teal-500 to-emerald-500'
-                        }`}
-                        style={{ width: `${Math.min(100, Math.max(0, telemetry.occlusion_ratio))}%` }}
-                      />
-                      {/* 20% Warning Marker */}
-                      <div
-                        className="absolute top-0 bottom-0 w-0.5 bg-amber-400/80 z-10"
-                        style={{ left: '20%' }}
-                        title="Warning Threshold (20% coverage)"
-                      />
-                      {/* 60% Critical Marker */}
-                      <div
-                        className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-10"
-                        style={{ left: '60%' }}
-                        title="Critical Threshold (60%)"
-                      />
-                    </div>
-
-                    {/* Threshold Scale */}
-                    <div className="flex justify-between text-[11px] text-slate-500 dark:text-slate-400 mt-2">
-                      <span>0% Clear</span>
-                      <span className="text-amber-600 dark:text-amber-400 font-medium">20% Warning</span>
-                      <span className="text-rose-600 dark:text-rose-400 font-medium">60% Critical</span>
-                      <span>100%</span>
-                    </div>
-                  </div>
-
-                  {/* Secondary Indicators: Temporal Smoothing & Water Level */}
-                  <div className="grid grid-cols-2 gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80 text-xs">
-                    <div className="bg-slate-100 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800/80">
-                      <span className="text-slate-500 dark:text-slate-400 block text-[11px] mb-1">Temporal Smoothing:</span>
-                      <span className="font-semibold text-teal-600 dark:text-teal-300">
-                        {telemetry.hysteresis_ratio || '2-of-3 frames (Pass)'}
-                      </span>
-                    </div>
-                    <div className="bg-slate-100 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800/80">
-                      <span className="text-slate-500 dark:text-slate-400 block text-[11px] mb-1">Ponding Depth:</span>
-                      <span className="font-semibold text-amber-600 dark:text-amber-300">
-                        +{telemetry.pond_level_cm || 14.5} cm
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card 2: Debris Breakdown Card */}
-                <div className="bg-white/80 dark:bg-[#0B1526]/80 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-lg backdrop-blur-md">
-                  <div className="flex items-center justify-between pb-3.5 border-b border-slate-200 dark:border-slate-800/80">
-                    <div className="flex items-center gap-2.5">
-                      <Layers className="w-5 h-5 text-teal-500 dark:text-teal-400" />
-                      <h3 className="font-bold text-sm text-slate-900 dark:text-white">Classified Debris</h3>
-                    </div>
-                    <span className="text-xs text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-500/10 px-2.5 py-0.5 rounded-full border border-teal-200 dark:border-teal-500/20">
-                      {telemetry.detections.length} Items Detected
-                    </span>
-                  </div>
-
-                  <div className="space-y-2 mt-3.5">
-                    {telemetry.detections.length === 0 ? (
-                      <p className="text-xs text-slate-400 py-2">No occluding debris detected in active ROI.</p>
-                    ) : (
-                      telemetry.detections.map((det, idx) => (
-                        <div
-                          key={idx}
-                          className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800/70 flex items-center justify-between text-xs"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-rose-400" />
-                            <span className="font-medium text-slate-800 dark:text-slate-200">{det.label}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
-                            <span>Conf:</span>
-                            <span className="text-teal-600 dark:text-teal-300 font-semibold font-mono">
-                              {(det.confidence * 100).toFixed(0)}%
-                            </span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                {/* Card 3: Primary Action - Voice Radio Dispatch Button */}
                 <button
                   type="button"
-                  onClick={handleOpenRadioForCurrent}
-                  className="w-full py-3.5 px-4 bg-primary hover:bg-primary/90 text-white rounded-2xl text-xs sm:text-sm font-semibold tracking-wide flex items-center justify-center gap-2.5 shadow-lg shadow-primary/20 transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
+                  onClick={() => setIsEditingRoi(!isEditingRoi)}
+                  className={`btn-custom text-xs font-medium border shrink-0 ${
+                    isEditingRoi
+                      ? 'bg-primary text-white dark:bg-blue-600 border-primary dark:border-blue-500 shadow-md font-semibold'
+                      : 'bg-white/60 dark:bg-white/[0.03] hover:bg-slate-100 dark:hover:bg-white/[0.08] text-slate-700 dark:text-slate-300 border-white/50 dark:border-white/10 backdrop-blur-xl shadow-lg'
+                  }`}
+                  title="Adjust Camera Area"
                 >
-                  <Radio className="w-4 h-4 text-teal-300" />
-                  <span>Launch Voice Radio Dispatch Ticket</span>
+                  <Sliders className={`w-3.5 h-3.5 ${isEditingRoi ? 'text-white' : 'text-teal-500 dark:text-teal-400'}`} />
+                  <span>{isEditingRoi ? 'Exit Camera Area' : 'Adjust Camera Area'}</span>
                 </button>
-              </aside>
+              </div>
+            </Container>
+
+            {/* RIGHT COLUMN: Operative Metrics & Action */}
+            <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 xl:w-2/6">
+              {/* Drain Blockage Status Card (agos-admin BlockageStatusCard look) */}
+              <Container>
+                <div className="flex items-start justify-between gap-2">
+                  <ContainerHeader title="Drain Blockage" />
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.7rem] font-semibold ${
+                      isCritical
+                        ? 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800'
+                        : isWarning
+                        ? 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800'
+                        : 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800'
+                    }`}
+                  >
+                    <span className="uppercase tracking-wide">
+                      {isCritical ? 'Blocked' : isWarning ? 'Potential' : 'Clear'}
+                    </span>
+                    <span className="opacity-70">{telemetry.occlusion_ratio.toFixed(1)}%</span>
+                  </span>
+                </div>
+
+                {/* Status hero */}
+                <div className="flex items-center gap-2 md:gap-3 my-1.5 md:my-2">
+                  <span
+                    className={`w-3.5 h-3.5 md:w-4 md:h-4 rounded-full ${
+                      isCritical ? 'bg-blocked' : isWarning ? 'bg-partial' : 'bg-clear'
+                    } ${isCritical ? 'pulse-circle' : ''}`}
+                  ></span>
+                  <span
+                    className={`font-bold text-2xl md:text-3xl ${
+                      isCritical ? 'text-blocked' : isWarning ? 'text-partial' : 'text-clear'
+                    }`}
+                  >
+                    {String(telemetry.status || 'CLEAR')}
+                  </span>
+                </div>
+
+                {/* Occlusion Progress Track (20% / 60% threshold markers) */}
+                <div className="w-full h-3 bg-gray-200 dark:bg-white/10 rounded-full overflow-hidden p-0.5 relative shadow-inner">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      isCritical
+                        ? 'bg-gradient-to-r from-amber-500 to-rose-500'
+                        : isWarning
+                        ? 'bg-gradient-to-r from-emerald-500 to-amber-500'
+                        : 'bg-gradient-to-r from-teal-500 to-emerald-500'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(0, telemetry.occlusion_ratio))}%` }}
+                  />
+                  <div
+                    className="absolute top-0 bottom-0 w-0.5 bg-amber-400/80 z-10"
+                    style={{ left: '20%' }}
+                    title="Warning Threshold (20%)"
+                  />
+                  <div
+                    className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-10"
+                    style={{ left: '60%' }}
+                    title="Heavy Blockage Threshold (60%)"
+                  />
+                </div>
+
+                {/* Threshold Scale */}
+                <div className="flex justify-between text-[11px] text-gray-500 dark:text-slate-400 mt-2">
+                  <span>0% Clear</span>
+                  <span className="text-amber-600 dark:text-amber-400 font-medium">20% Warning</span>
+                  <span className="text-rose-600 dark:text-rose-400 font-medium">60% Heavy Blockage</span>
+                  <span>100% Full</span>
+                </div>
+
+                {/* Secondary Indicators: Water Flow & Rain Hazard */}
+                <div className="grid grid-cols-2 gap-2 pt-3 mt-3 border-t border-slate-200/60 dark:border-white/10 text-xs">
+                  <div className="flex flex-col justify-center gap-0.5 rounded-xl p-2.5 md:p-3 border bg-white/40 dark:bg-white/[0.02] border-gray-200/50 dark:border-white/10 backdrop-blur-sm shadow-sm">
+                    <p className="text-[0.7rem] md:text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+                      Water Flow
+                    </p>
+                    <p
+                      className={`text-sm md:text-base font-semibold ${
+                        isCritical
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : isWarning
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : 'text-emerald-600 dark:text-emerald-400'
+                      }`}
+                    >
+                      {isCritical ? 'Clogged' : isWarning ? 'Slow Flow' : 'Normal Flowing'}
+                    </p>
+                  </div>
+                  <div className="flex flex-col justify-center gap-0.5 rounded-xl p-2.5 md:p-3 border bg-white/40 dark:bg-white/[0.02] border-gray-200/50 dark:border-white/10 backdrop-blur-sm shadow-sm">
+                    <p className="text-[0.7rem] md:text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+                      Rain Hazard
+                    </p>
+                    <p
+                      className={`text-sm md:text-base font-semibold ${
+                        isRainHazard
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : 'text-emerald-600 dark:text-emerald-400'
+                      }`}
+                    >
+                      {isRainHazard
+                        ? `Active (${weather.rain_hazard?.source === 'override' ? 'Override' : 'Auto'})`
+                        : 'Normal'}
+                    </p>
+                  </div>
+                </div>
+              </Container>
+
+              {/* Weather Condition Card (agos-admin WeatherConditionCard look) */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setActiveTab('weather')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') setActiveTab('weather');
+                }}
+                className="cursor-pointer"
+                title="Open Weather Intelligence"
+              >
+                <Container className="h-full">
+                  <div className="flex items-start justify-between gap-2">
+                    <ContainerHeader title="Weather Condition" />
+                    {isRainHazard && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.7rem] font-semibold bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800">
+                        <AlertTriangle className="w-3 h-3" />
+                        <span className="uppercase tracking-wide">Rain Hazard</span>
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 items-center my-2">
+                    <WeatherIcon
+                      className={`w-8 h-8 md:w-10 md:h-10 shrink-0 ${
+                        weather.is_online ? rainTier.colorClass : 'text-gray-400 dark:text-slate-500'
+                      }`}
+                    />
+                    <div className="min-w-0">
+                      <h2
+                        className={`font-semibold text-xl md:text-2xl truncate ${
+                          weather.is_online ? rainTier.colorClass : 'text-gray-400 dark:text-slate-500'
+                        }`}
+                      >
+                        {weather.is_online ? weather.condition : 'Offline Mode'}
+                      </h2>
+                      <p className="text-xs md:text-sm text-gray-600 dark:text-slate-400 truncate">
+                        {weather.is_online
+                          ? getWeatherDescription(weather.weather_code)
+                          : weather.message}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-col justify-center gap-0.5 rounded-xl p-2.5 md:p-3 border bg-white/40 dark:bg-white/[0.02] border-gray-200/50 dark:border-white/10 backdrop-blur-sm shadow-sm">
+                      <p className="text-[0.7rem] md:text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+                        Rainfall
+                      </p>
+                      <p className="text-sm md:text-base font-semibold">
+                        {weather.rainfall_mm.toFixed(1)} mm
+                      </p>
+                    </div>
+                    <div className="flex flex-col justify-center gap-0.5 rounded-xl p-2.5 md:p-3 border bg-white/40 dark:bg-white/[0.02] border-gray-200/50 dark:border-white/10 backdrop-blur-sm shadow-sm">
+                      <p className="text-[0.7rem] md:text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-slate-400">
+                        Temperature
+                      </p>
+                      <p className="text-sm md:text-base font-semibold">
+                        {weather.temperature_c !== null
+                          ? `${Math.round(weather.temperature_c)}°C`
+                          : '--°C'}
+                      </p>
+                    </div>
+                  </div>
+                </Container>
+              </div>
+
+              {/* Detected Trash Card */}
+              <Container className="sm:col-span-2 xl:col-span-1">
+                <div className="flex items-start justify-between gap-2">
+                  <ContainerHeader title="Detected Trash" />
+                  <span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.7rem] font-semibold bg-gray-100 text-gray-600 border-gray-300 dark:bg-white/10 dark:text-slate-300 dark:border-white/10">
+                    <span className="uppercase tracking-wide">
+                      {telemetry.detections.length} Items
+                    </span>
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {telemetry.detections.length === 0 ? (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 py-2">
+                      No blocking trash detected in camera area.
+                    </p>
+                  ) : (
+                    telemetry.detections.map((det, idx) => (
+                      <div
+                        key={idx}
+                        className="p-2.5 rounded-xl bg-white/40 dark:bg-white/[0.02] border border-gray-200/50 dark:border-white/10 flex items-center justify-between text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-rose-400" />
+                          <span className="font-medium text-slate-800 dark:text-slate-200">
+                            {det.label}
+                          </span>
+                        </div>
+                        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[0.65rem] font-semibold font-mono bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800">
+                          {(det.confidence * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </Container>
+
+              {/* Primary Action - Alert Responders Button */}
+              <button
+                type="button"
+                onClick={handleOpenRadioForCurrent}
+                className="btn-custom w-full bg-primary text-white hover:bg-primary/90 dark:bg-blue-600 dark:hover:bg-blue-500 font-semibold tracking-wide shadow-lg shadow-primary/20 sm:col-span-2 xl:col-span-1"
+              >
+                <Radio className="w-4 h-4" />
+                <span>Alert Responders (Radio / SMS)</span>
+              </button>
             </div>
+          </div>
 
           {activeTab === 'weather' && (
             /* DEDICATED WEATHER INTELLIGENCE VIEW */
@@ -598,12 +760,16 @@ export const App: React.FC = () => {
       <RadioDispatchModal
         isOpen={isRadioModalOpen}
         onClose={() => setIsRadioModalOpen(false)}
+        incidentId={radioModalPayload.incidentId}
         cameraName={radioModalPayload.cameraName}
         cameraId={radioModalPayload.cameraId}
         location={radioModalPayload.location}
         occlusionRatio={radioModalPayload.occlusionRatio}
         status={radioModalPayload.status}
         debrisTypes={radioModalPayload.debrisTypes}
+        initialRadioTicket={radioModalPayload.initialRadioTicket}
+        targetGroupId={radioModalPayload.targetGroupId}
+        rainHazard={weather.rain_hazard?.active}
       />
     </div>
   );

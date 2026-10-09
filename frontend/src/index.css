@@ -29,3 +29,107 @@
     background: #1ABC9C;
   }
 }
+
+@layer components {
+  .custom-shadow {
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.15);
+  }
+
+  .btn-custom {
+    @apply flex gap-2 items-center justify-center px-4 py-3 rounded-lg text-sm leading-5 cursor-pointer;
+    @apply transition-colors ease-in-out duration-150;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-cancel {
+    @apply px-4 py-3 text-sm border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-300 cursor-pointer rounded-lg;
+    @apply hover:bg-gray-100 dark:hover:bg-slate-800;
+    @apply transition-colors ease-in-out duration-150;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply disabled:hover:bg-white dark:disabled:hover:bg-transparent;
+  }
+
+  .pulse-circle {
+    @apply relative;
+  }
+
+  .pulse-circle::after {
+    @apply content-[''] absolute inset-0 rounded-full;
+    @apply bg-inherit;
+    @apply animate-[pulse-out_1.5s_ease-out_infinite];
+  }
+
+  .spinner {
+    @apply border-[3px] border-solid border-transparent;
+    @apply border-t-current border-r-current;
+    @apply rounded-full;
+    @apply animate-[spin_0.6s_linear_infinite];
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden bg-[#e5e7eb] dark:bg-slate-700/50;
+  }
+
+  .skeleton::after {
+    @apply content-[''] absolute inset-0 -translate-x-full;
+
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.2) 20%,
+      rgba(255, 255, 255, 0.5) 60%,
+      rgba(255, 255, 255, 0)
+    );
+
+    @apply animate-[shimmer_2s_infinite];
+  }
+
+  .dark .skeleton::after {
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.05) 20%,
+      rgba(255, 255, 255, 0.1) 60%,
+      rgba(255, 255, 255, 0)
+    );
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full dark:bg-slate-700;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400 dark:bg-slate-600;
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@keyframes pulse-out {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}

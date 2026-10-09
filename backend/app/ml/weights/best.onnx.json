@@ -1,28 +1,25 @@
 {
-  "model_version": "debris-yolov8n-20261009-7e387c29-gate-overridden",
-  "sha256": "7e387c29e15b98b0933e4da925611c4c4d58c16d781c8fe40e0dc3d2163a6ccf",
-  "size_bytes": 12265252,
-  "training_source": "public datasets only: TACO (images from D:\\Github\\TACO\\data; per-image Flickr licences unverified) fine-tuned with licence-clean Wikimedia Commons negatives (permissive licences); base run debris_yolov8n, fine-tune run debris_yolov8n_neg",
-  "trained_at": "2026-10-09T23:17:14+08:00",
+  "model_version": "debris-yolov8n-20261010-67dd8d74",
+  "sha256": "67dd8d743bb4b711a760d77f5b1bd8589da6784280affcd8af22b02c31b3baa3",
+  "size_bytes": 12238408,
+  "training_source": "public datasets: unknown",
+  "trained_at": "2026-10-09T17:20:16+00:00",
   "license": "AGPL-3.0 (Ultralytics YOLOv8)",
   "validated_on": "public data only",
   "metrics": {
-    "median_abs_error": 4.36,
-    "p90_abs_error": 33.59,
-    "within_fraction": 0.7766666666666666,
+    "median_abs_error": 2.34,
+    "p90_abs_error": 10.65,
+    "within_fraction": 0.9508196721311475,
     "max_coverage_error": 15.0,
-    "negative_fp_rate": 0.16666666666666666,
-    "status_agreement": 0.7527777777777778,
-    "positive_images": 300,
-    "negative_images": 60
+    "negative_fp_rate": 0.0,
+    "status_agreement": 0.8666666666666667,
+    "positive_images": 122,
+    "negative_images": 28
   },
   "negatives_checked": true,
   "gate_note": "",
-  "gate_passed": false,
-  "gate_overridden": true,
-  "override_reason": "User decision 2026-10-09: only model passing all four stage-demo replay stages; gate not passed (77.7% within 15 pts vs 80%; 16.7% negative false coverage vs 10%); validated on public data only",
-  "gate_failures": [
-    "only 77.7% of positive images within 15.0 points (< 80%)",
-    "negative false-coverage rate 16.7% > 10%"
-  ]
+  "gate_passed": true,
+  "gate_overridden": false,
+  "override_reason": null,
+  "gate_failures": []
 }

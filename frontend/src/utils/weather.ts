@@ -43,6 +43,43 @@ export interface RainTier {
   isHazard: boolean;
 }
 
+export type StatusCardType = 'good' | 'moderate' | 'bad';
+
+export const getComfortType = (level?: string | null): StatusCardType => {
+  const l = (level ?? '').toLowerCase();
+  if (l === 'comfortable' || l === 'cool') return 'good';
+  if (l === 'uncomfortable' || l === 'oppressive' || l === 'heat stress risk') return 'bad';
+  return 'moderate';
+};
+
+export const getStormRiskType = (level?: string | null): StatusCardType => {
+  const l = (level ?? '').toLowerCase();
+  if (l === 'none' || l === 'low') return 'good';
+  if (l === 'likely') return 'bad';
+  return 'moderate';
+};
+
+export const getTimeAgo = (timestamp: string): string => {
+  const seconds = Math.floor((new Date().getTime() - new Date(timestamp).getTime()) / 1000);
+  if (Number.isNaN(seconds)) return 'never';
+  if (seconds < 60) return 'Just now';
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min${minutes > 1 ? 's' : ''} ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} day${days > 1 ? 's' : ''} ago`;
+
+  const weeks = Math.floor(days / 7);
+  if (weeks < 4) return `${weeks} week${weeks > 1 ? 's' : ''} ago`;
+
+  const months = Math.floor(days / 30);
+  return `${months} month${months > 1 ? 's' : ''} ago`;
+};
+
 export const getRainTier = (rainfall_mm: number): RainTier => {
   if (rainfall_mm === 0) {
     return {

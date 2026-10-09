@@ -54,4 +54,7 @@ ml_pipeline/*.pt
 
 # Agent workspace caches
 .agents/
+.kiro/
+.serena/
+brag-output*/
 

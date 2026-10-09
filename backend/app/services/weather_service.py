@@ -18,13 +18,20 @@ import aiosqlite
 import httpx
 
 from app.core.config import settings
+from app.utils.weather_mappers import (
+    get_cloudiness,
+    get_comfort_level,
+    get_humidity_level,
+    get_storm_risk_level,
+    get_temperature_description,
+    get_weather_description,
+    get_wind_category,
+    get_wind_direction_label,
+)
 
 logger = logging.getLogger("agos.weather")
 logger.setLevel(logging.INFO)
 
-# Default coordinates: Metro Manila, Philippines
-DEFAULT_LAT = 14.5995
-DEFAULT_LON = 120.9842
 TIMEOUT_SECONDS = 2.0
 
 
@@ -118,17 +125,20 @@ class WeatherService:
 
     async def get_current_weather(
         self,
-        lat: float = DEFAULT_LAT,
-        lon: float = DEFAULT_LON,
+        lat: Optional[float] = None,
+        lon: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Fetch current weather telemetry with strict 2-second timeout.
-        
+
         Returns offline fallback immediately if network is disconnected.
         """
+        lat = settings.WEATHER_LAT if lat is None else lat
+        lon = settings.WEATHER_LON if lon is None else lon
         url = (
             f"https://api.open-meteo.com/v1/forecast"
             f"?latitude={lat}&longitude={lon}"
             f"&current=temperature_2m,relative_humidity_2m,precipitation,weather_code"
+            f",wind_speed_10m,wind_direction_10m,cloud_cover"
             f"&timezone=Asia%2FManila"
         )
 
@@ -143,6 +153,9 @@ class WeatherService:
                     temp = float(current.get("temperature_2m", 28.0))
                     humidity = float(current.get("relative_humidity_2m", 80.0))
                     code = int(current.get("weather_code", 0))
+                    wind_speed = float(current.get("wind_speed_10m", 0.0))
+                    wind_dir = float(current.get("wind_direction_10m", 0.0))
+                    cloud_cover = float(current.get("cloud_cover", 0.0))
 
                     condition = self._interpret_weather_code(code, precip)
 
@@ -154,9 +167,20 @@ class WeatherService:
                         "condition": condition,
                         "weather_code": code,
                         "message": f"{condition} ({precip:.1f} mm/hr)",
-                        "location": "Metro Manila (PAGASA Sector)",
+                        "location": settings.WEATHER_LOCATION_NAME,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "cached": False,
+                        "wind_speed_kmh": wind_speed,
+                        "wind_direction_degrees": wind_dir,
+                        "cloud_cover_percent": cloud_cover,
+                        "precipitation_description": get_weather_description(precip),
+                        "temperature_description": get_temperature_description(temp),
+                        "humidity_level": get_humidity_level(humidity),
+                        "wind_category": get_wind_category(wind_speed),
+                        "wind_direction_label": get_wind_direction_label(wind_dir),
+                        "cloudiness": get_cloudiness(cloud_cover),
+                        "comfort_level": get_comfort_level(temp, humidity),
+                        "storm_risk_level": get_storm_risk_level(code, precip, wind_speed),
                     }
 
                     self._last_cached_weather = payload
@@ -182,9 +206,20 @@ class WeatherService:
             "condition": "Offline Mode",
             "weather_code": None,
             "message": "Offline (Weather unavailable)",
-            "location": "Local Command Center",
+            "location": settings.WEATHER_LOCATION_NAME,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "cached": False,
+            "wind_speed_kmh": None,
+            "wind_direction_degrees": None,
+            "cloud_cover_percent": None,
+            "precipitation_description": None,
+            "temperature_description": None,
+            "humidity_level": None,
+            "wind_category": None,
+            "wind_direction_label": None,
+            "cloudiness": None,
+            "comfort_level": None,
+            "storm_risk_level": None,
         }
 
     @staticmethod

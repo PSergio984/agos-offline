@@ -19,7 +19,7 @@ def _latest_precipitation() -> Optional[float]:
 
 
 @router.get("")
-async def get_weather(lat: float = 14.5995, lon: float = 120.9842):
+async def get_weather(lat: Optional[float] = None, lon: Optional[float] = None):
     """Retrieve current weather telemetry or graceful offline status with strict 2s timeout."""
     payload = await weather_service.get_current_weather(lat, lon)
     precip = payload.get("rainfall_mm") if payload.get("is_online") else None

@@ -52,7 +52,14 @@ class CameraCreateRequest(BaseModel):
     source: str = Field(..., min_length=1)
     source_type: str = Field("file", description="'file', 'rtsp', 'webcam', or 'synthetic'")
     location: Optional[str] = Field("", max_length=200)
+    target_group_id: Optional[str] = Field(None, max_length=100)
     roi: Optional[List[float]] = Field(default_factory=lambda: list(settings.DEFAULT_ROI))
+
+
+class CameraUpdateRequest(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    location: Optional[str] = Field(None, max_length=200)
+    target_group_id: Optional[str] = Field(None, max_length=100)
 
 
 class SwitchCameraRequest(BaseModel):
@@ -157,10 +164,10 @@ async def create_camera(payload: CameraCreateRequest, db: aiosqlite.Connection =
 
     await db.execute(
         """
-        INSERT INTO cameras (id, name, source, source_type, is_active, location)
-        VALUES (?, ?, ?, ?, 0, ?)
+        INSERT INTO cameras (id, name, source, source_type, is_active, location, target_group_id)
+        VALUES (?, ?, ?, ?, 0, ?, ?)
         """,
-        (new_id, payload.name, payload.source, source_type, payload.location or "")
+        (new_id, payload.name, payload.source, source_type, payload.location or "", payload.target_group_id)
     )
 
     roi_id = f"roi-{uuid.uuid4().hex[:8]}"
@@ -181,8 +188,41 @@ async def create_camera(payload: CameraCreateRequest, db: aiosqlite.Connection =
         "source_type": source_type,
         "is_active": False,
         "location": payload.location,
+        "target_group_id": payload.target_group_id,
         "roi": roi
     }
+
+
+@router.put("/{camera_id}", response_model=Dict[str, Any])
+async def update_camera(
+    camera_id: str,
+    payload: CameraUpdateRequest,
+    db: aiosqlite.Connection = Depends(get_db)
+):
+    """Update camera name, location, or assigned responder group."""
+    cursor = await db.execute("SELECT id FROM cameras WHERE id = ?", (camera_id,))
+    if not await cursor.fetchone():
+        raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found")
+
+    updates = []
+    params = []
+    if payload.name is not None:
+        updates.append("name = ?")
+        params.append(payload.name)
+    if payload.location is not None:
+        updates.append("location = ?")
+        params.append(payload.location)
+    if payload.target_group_id is not None:
+        updates.append("target_group_id = ?")
+        params.append(payload.target_group_id)
+
+    if updates:
+        updates.append("updated_at = datetime('now', 'localtime')")
+        params.append(camera_id)
+        await db.execute(f"UPDATE cameras SET {', '.join(updates)} WHERE id = ?", tuple(params))
+        await db.commit()
+
+    return await get_camera(camera_id, db)
 
 
 @router.post("/switch")

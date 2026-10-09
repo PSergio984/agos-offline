@@ -42,7 +42,23 @@ export default {
         ],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
       },
+      backgroundImage: {
+        'dark-gradient': 'radial-gradient(circle at top, #111828 0%, #050B14 100%)',
+        'glass-gradient': 'linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 100%)',
+      },
       keyframes: {
+        'slide-in-right': {
+          '0%': { transform: 'translateX(100%)' },
+          '100%': { transform: 'translateX(0)' },
+        },
+        'dropdown-in': {
+          '0%': { opacity: '0', transform: 'translateY(-8px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        'pulse-slow': {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.7' },
+        },
         pulseFast: {
           '0%, 100%': { opacity: '1', transform: 'scale(1)' },
           '50%': { opacity: '0.4', transform: 'scale(1.02)' },
@@ -57,6 +73,9 @@ export default {
         }
       },
       animation: {
+        'slide-in-right': 'slide-in-right 0.3s ease-out',
+        'dropdown-in': 'dropdown-in 0.15s ease-out',
+        'pulse-slow': 'pulse-slow 3s ease-in-out infinite',
         'pulse-fast': 'pulseFast 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         'alarm-glow': 'alarmGlow 0.8s ease-in-out infinite',
         'warning-glow': 'warningGlow 1.2s ease-in-out infinite',

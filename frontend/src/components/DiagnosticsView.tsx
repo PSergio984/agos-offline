@@ -32,135 +32,146 @@ export const DiagnosticsView: React.FC<DiagnosticsViewProps> = ({
   return (
     <div className="space-y-6 max-w-6xl mx-auto font-sans">
       {/* Header */}
-      <div className="pb-4 border-b border-slate-800/80">
+      <div className="pb-4 border-b border-slate-200/80 dark:border-slate-800/80">
         <div className="flex items-center gap-2.5">
-          <h2 className="text-xl font-bold text-white tracking-tight">System Diagnostics & Runtime Telemetry</h2>
-          <span className="text-[11px] font-medium bg-teal-500/10 text-teal-300 border border-teal-500/20 px-2.5 py-0.5 rounded-full">
-            Local Workstation Edge
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">System Health & Diagnostics</h2>
+          <span className="text-[11px] font-medium bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300 border border-teal-200 dark:border-teal-500/20 px-2.5 py-0.5 rounded-full">
+            Local Computer
           </span>
         </div>
-        <p className="text-xs text-slate-400 mt-1">
-          Hardware acceleration, SQLite database status, and on-premises inference health
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          Check if camera, local computer storage, and saved logs are running smoothly
         </p>
       </div>
 
       {/* Core Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Vision Engine */}
-        <div className="bg-[#0B1526]/80 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-md shadow-md space-y-2">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-xs">Vision Engine</span>
-            <Cpu className="w-4 h-4 text-teal-400" />
+        {/* Card 1: Camera Scanner */}
+        <div className="bg-white/80 dark:bg-white/[0.03] backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-5 shadow-lg space-y-2">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+            <span className="text-xs font-semibold">Camera Scanner</span>
+            <Cpu className="w-4 h-4 text-teal-600 dark:text-teal-400" />
           </div>
-          <div className="text-lg font-bold text-white">YOLOv8 ONNX</div>
-          <p className="text-[11px] text-slate-400">CPU / DirectML Runtime</p>
+          <div className="text-lg font-bold text-slate-900 dark:text-white">YOLOv8 AI</div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">Runs locally on this PC</p>
         </div>
 
-        {/* Card 2: Inference Latency */}
-        <div className="bg-[#0B1526]/80 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-md shadow-md space-y-2">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-xs">Inference Latency</span>
-            <Activity className="w-4 h-4 text-emerald-400" />
+        {/* Card 2: Scan Speed */}
+        <div className="bg-white/80 dark:bg-white/[0.03] backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-5 shadow-lg space-y-2">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+            <span className="text-xs font-semibold">Scan Speed</span>
+            <Activity className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
           </div>
-          <div className="text-lg font-bold text-emerald-400 font-mono">
+          <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400 font-mono">
             {telemetry.latency_ms > 0 ? `${telemetry.latency_ms} ms` : '22 ms'}
           </div>
-          <p className="text-[11px] text-slate-400">Target Cadence: ~{telemetry.fps || 10} FPS</p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">Fast · ~{telemetry.fps || 10} Frames/sec</p>
         </div>
 
         {/* Card 3: Local Storage */}
-        <div className="bg-[#0B1526]/80 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-md shadow-md space-y-2">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-xs">Local Database</span>
-            <Database className="w-4 h-4 text-amber-400" />
+        <div className="bg-white/80 dark:bg-white/[0.03] backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-5 shadow-lg space-y-2">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+            <span className="text-xs font-semibold">Saved Records</span>
+            <Database className="w-4 h-4 text-amber-600 dark:text-amber-400" />
           </div>
-          <div className="text-lg font-bold text-white">SQLite (agos.db)</div>
-          <p className="text-[11px] text-slate-400">storage/incidents/</p>
+          <div className="text-lg font-bold text-slate-900 dark:text-white">agos.db</div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">Saved on computer drive</p>
         </div>
 
         {/* Card 4: Store & Forward Queue */}
-        <div className="bg-[#0B1526]/80 border border-slate-800/80 rounded-2xl p-5 backdrop-blur-md shadow-md space-y-2">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-xs">Sync Queue</span>
-            <HardDrive className="w-4 h-4 text-teal-400" />
+        <div className="bg-white/80 dark:bg-white/[0.03] backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-5 shadow-lg space-y-2">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+            <span className="text-xs font-semibold">Cloud Sync</span>
+            <HardDrive className="w-4 h-4 text-teal-600 dark:text-teal-400" />
           </div>
-          <div className="text-lg font-bold text-teal-300 font-mono">
-            {syncStatus.pending_count} pending
+          <div className="text-lg font-bold text-teal-700 dark:text-teal-300 font-mono">
+            {syncStatus.pending_count} waiting
           </div>
-          <p className="text-[11px] text-slate-400">{syncStatus.synced_count} records synced</p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">{syncStatus.synced_count} already synced</p>
         </div>
       </div>
 
-      {/* Deep Technical Specifications */}
+      {/* Details Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Active Grate Calibration Spec */}
-        <div className="bg-[#0B1526]/80 border border-slate-800/80 rounded-2xl p-6 backdrop-blur-md shadow-lg space-y-4">
+        {/* Camera Scan Area */}
+        <div className="bg-white/80 dark:bg-white/[0.03] backdrop-blur-xl border border-slate-200/80 dark:border-white/10 rounded-2xl p-6 shadow-lg space-y-4">
           <div className="flex items-center gap-2.5">
-            <Sliders className="w-5 h-5 text-teal-400" />
-            <h3 className="font-bold text-sm text-white">Active Grate Calibration Matrix</h3>
+            <Sliders className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+            <h3 className="font-bold text-sm text-slate-900 dark:text-white">Camera Scan Area</h3>
           </div>
-          <p className="text-xs text-slate-300">
-            Normalized bounding coordinates calibrated for {selectedCameraName}. The occlusion engine evaluates solid waste intersection strictly within this polygon.
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            The camera looks for trash inside this marked area on the canal for {selectedCameraName}.
           </p>
 
-          <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800/80 font-mono text-xs space-y-2 text-slate-300">
+          <div className="bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/60 font-mono text-xs space-y-2 text-slate-700 dark:text-slate-300">
             <div className="flex justify-between">
-              <span className="text-slate-400">X-Min (Left):</span>
-              <span className="text-teal-400 font-bold">{currentRoi[0].toFixed(3)}</span>
+              <span className="text-slate-500 dark:text-slate-400">Left edge:</span>
+              <span className="text-teal-700 dark:text-teal-400 font-semibold">{currentRoi[0].toFixed(3)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">Y-Min (Top):</span>
-              <span className="text-teal-400 font-bold">{currentRoi[1].toFixed(3)}</span>
+              <span className="text-slate-500 dark:text-slate-400">Top edge:</span>
+              <span className="text-teal-700 dark:text-teal-400 font-semibold">{currentRoi[1].toFixed(3)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">X-Max (Right):</span>
-              <span className="text-teal-400 font-bold">{currentRoi[2].toFixed(3)}</span>
+              <span className="text-slate-500 dark:text-slate-400">Right edge:</span>
+              <span className="text-teal-700 dark:text-teal-400 font-semibold">{currentRoi[2].toFixed(3)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">Y-Max (Bottom):</span>
-              <span className="text-teal-400 font-bold">{currentRoi[3].toFixed(3)}</span>
+              <span className="text-slate-500 dark:text-slate-400">Bottom edge:</span>
+              <span className="text-teal-700 dark:text-teal-400 font-semibold">{currentRoi[3].toFixed(3)}</span>
             </div>
-            <div className="pt-2 border-t border-slate-800/80 flex justify-between text-white font-semibold">
-              <span>Normalized Array:</span>
-              <span className="text-teal-300">[{currentRoi.map((v) => v.toFixed(2)).join(', ')}]</span>
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between text-[11px]">
+              <span className="text-slate-500 dark:text-slate-400 font-sans">Area Box:</span>
+              <span className="text-slate-900 dark:text-white font-bold">
+                [{currentRoi.map((v) => v.toFixed(2)).join(', ')}]
+              </span>
             </div>
           </div>
         </div>
 
-        {/* VHF/UHF Voice Radio Dispatch Protocol Guidelines */}
-        <div className="bg-[#0B1526]/80 border border-slate-800/80 rounded-2xl p-6 backdrop-blur-md shadow-lg space-y-4">
+        {/* Radio Call Guide */}
+        <div className="bg-white/80 dark:bg-white/[0.03] backdrop-blur-xl border border-slate-200/80 dark:border-white/10 shadow-lg rounded-2xl p-6 space-y-4">
           <div className="flex items-center gap-2.5">
-            <Radio className="w-5 h-5 text-teal-400" />
-            <h3 className="font-bold text-sm text-white">Voice Radio SOP Guidelines</h3>
+            <Radio className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+            <h3 className="font-bold text-sm text-slate-900 dark:text-white">Radio Call Guide</h3>
           </div>
-          <p className="text-xs text-slate-300">
-            Standard Operating Procedure for emergency field notifications during drainage occlusion events.
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            How to call responders over radio or phone when a drain is blocked:
           </p>
 
-          <div className="space-y-2 text-xs">
-            <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80 text-slate-300 space-y-1">
-              <span className="font-semibold text-teal-300 block">1. Tactical Link Synchronization</span>
-              <p className="text-slate-400 text-[11px]">
-                Key transceiver push-to-talk (PTT) switch 1 second prior to vocalizing to allow municipal repeater lock.
+          <div className="space-y-3 text-xs">
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 space-y-1">
+              <div className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-full bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-300 flex items-center justify-center text-[11px] font-bold">1</span>
+                <span>Before speaking:</span>
+              </div>
+              <p className="text-slate-600 dark:text-slate-400 pl-6">
+                Press and hold radio button for 1 second before talking so words don't get cut off.
               </p>
             </div>
-            <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80 text-slate-300 space-y-1">
-              <span className="font-semibold text-teal-300 block">2. Standard Verbatim Format</span>
-              <p className="text-slate-400 text-[11px]">
-                "Command to Mobile Patrol: Drainage obstruction detected at [Camera]. Occlusion [X]%, Status CRITICAL. Immediate declogging required. Over."
+
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 space-y-1">
+              <div className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-full bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-300 flex items-center justify-center text-[11px] font-bold">2</span>
+                <span>What to say on radio:</span>
+              </div>
+              <p className="font-mono text-teal-900 dark:text-teal-200 bg-teal-50/80 dark:bg-teal-950/40 p-2.5 rounded-lg border border-teal-200 dark:border-teal-800/50 pl-3">
+                "Attention Mobile Patrol: Trash blockage detected at [Location]. Blockage [X]%. Please clean immediately. Over."
               </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Air-Gap Assurance Banner */}
-      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-5 flex items-start gap-3 text-xs text-emerald-300">
-        <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-        <div className="space-y-1">
-          <span className="font-bold text-sm text-emerald-200 block">100% On-Premises Air-Gapped Operation</span>
-          <p className="text-emerald-300/90 leading-relaxed text-[11px]">
-            This workstation processes video streams, runs YOLOv8 ONNX inference, manages SQLite incident storage, and synthesizes emergency audio alarms entirely locally. Zero telemetry egress or cloud credentials are required.
+      {/* 100% Offline Guarantee Banner */}
+      <div className="bg-emerald-50/80 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-2xl p-4 flex items-start gap-3">
+        <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+        <div className="text-xs space-y-0.5">
+          <p className="font-bold text-emerald-900 dark:text-emerald-200">
+            Works 100% Offline (No Internet Needed)
+          </p>
+          <p className="text-emerald-700 dark:text-emerald-300 leading-relaxed">
+            This system runs camera feeds, AI trash detection, and saves logs directly on this computer. It continues working during storms and internet outages.
           </p>
         </div>
       </div>

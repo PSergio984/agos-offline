@@ -1,0 +1,9 @@
+{
+  "source": "Jionco real validation set (150 held-out images)",
+  "dataset": "ml_pipeline/dataset/jionco_mix",
+  "fps": 30,
+  "hold_seconds": 2.0,
+  "crossfade_seconds": 0.5,
+  "image_count": 150,
+  "duration_seconds": 375.0
+}

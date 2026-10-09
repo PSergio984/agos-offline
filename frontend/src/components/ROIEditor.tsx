@@ -237,16 +237,16 @@ export const ROIEditor: React.FC<ROIEditorProps> = ({
       </div>
 
       {/* Floating Toolbar Controls */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 bg-[#0B1526]/95 border border-slate-700/60 backdrop-blur-md rounded-2xl p-2.5 sm:p-3 shadow-2xl flex items-center gap-3 font-sans">
-        <div className="flex items-center gap-2 pr-3 border-r border-slate-700/80 text-xs text-slate-300">
-          <Sliders className="w-4 h-4 text-teal-400" />
-          <span className="font-semibold text-white">ROI Calibrator</span>
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 bg-white/95 dark:bg-[#050B14]/95 border border-slate-200/80 dark:border-white/10 backdrop-blur-xl rounded-2xl p-2.5 sm:p-3 shadow-2xl flex items-center gap-3 font-sans transition-colors">
+        <div className="flex items-center gap-2 pr-3 border-r border-slate-200/80 dark:border-white/10 text-xs text-slate-700 dark:text-slate-300">
+          <Sliders className="w-4 h-4 text-teal-500 dark:text-teal-400" />
+          <span className="font-semibold text-slate-900 dark:text-slate-100">ROI Calibrator</span>
         </div>
 
         <button
           type="button"
           onClick={handleReset}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-800 cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] text-slate-700 dark:text-slate-300 transition-colors border border-slate-200/80 dark:border-white/10 cursor-pointer"
         >
           <RotateCcw className="w-3.5 h-3.5" />
           <span>Reset</span>
@@ -269,7 +269,7 @@ export const ROIEditor: React.FC<ROIEditorProps> = ({
             </>
           ) : (
             <>
-              <Save className="w-3.5 h-3.5" />
+              <Save className="w-3.5 h-3.5 text-teal-300" />
               <span>{isSaving ? 'Saving...' : 'Save Grate ROI'}</span>
             </>
           )}
@@ -279,7 +279,7 @@ export const ROIEditor: React.FC<ROIEditorProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-3.5 py-1.5 rounded-xl text-xs font-medium bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-800 cursor-pointer"
+            className="px-3.5 py-1.5 rounded-xl text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] text-slate-700 dark:text-slate-300 transition-colors border border-slate-200/80 dark:border-white/10 cursor-pointer"
           >
             Done
           </button>

@@ -25,6 +25,13 @@ const PRESET_SOURCES: StreamSource[] = [
     url: 'sample_media/real_demo.mp4',
   },
   {
+    id: 'jionco-val-demo',
+    type: 'demo',
+    name: 'Jionco Validation Set',
+    description: 'sample_media/jionco_val_demo.mp4 (150 held-out real images)',
+    url: 'sample_media/jionco_val_demo.mp4',
+  },
+  {
     id: 'usb-webcam',
     type: 'webcam',
     name: 'USB Webcam',
@@ -96,10 +103,10 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
   };
 
   return (
-    <div className="bg-white dark:bg-[#0B1526]/80 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-3 sm:p-4 shadow-sm backdrop-blur-md transition-colors">
+    <div className="bg-white/80 dark:bg-white/[0.03] backdrop-blur-xl border border-slate-200/80 dark:border-white/10 shadow-lg rounded-2xl p-3 sm:p-4 transition-colors">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         {/* Source Switcher Segmented Tabs */}
-        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950/60 p-1 rounded-xl border border-slate-200 dark:border-slate-800/70 overflow-x-auto">
+        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-white/[0.04] p-1 rounded-xl border border-slate-200/80 dark:border-white/10 overflow-x-auto">
           {PRESET_SOURCES.map((source) => {
             const isActive =
               activeSource.type === source.type &&
@@ -116,7 +123,7 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
                 className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
                   isActive
                     ? 'bg-primary text-white shadow-sm font-semibold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/60 dark:hover:bg-white/[0.06]'
                 }`}
               >
                 <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-teal-300' : 'text-slate-500 dark:text-slate-400'}`} />
@@ -140,13 +147,13 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
 
       {/* Contextual Configuration Row for RTSP & Webcam */}
       {selectedType === 'rtsp' && (
-        <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800/60 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        <div className="mt-3 pt-3 border-t border-slate-200/80 dark:border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <input
             type="text"
             value={customRtspUrl}
             onChange={(e) => setCustomRtspUrl(e.target.value)}
             placeholder="rtsp://admin:password@192.168.1.100:554/stream1"
-            className="flex-1 bg-white dark:bg-slate-950/80 border border-slate-300 dark:border-slate-700/60 text-slate-800 dark:text-slate-200 rounded-xl px-3 py-1.5 text-xs focus:border-teal-500 focus:outline-none shadow-sm"
+            className="flex-1 bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-white/10 text-slate-800 dark:text-slate-100 rounded-xl px-3 py-1.5 text-xs focus:border-teal-500 focus:outline-none shadow-sm"
           />
           <button
             type="button"
@@ -161,7 +168,7 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
       )}
 
       {selectedType === 'webcam' && (
-        <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800/60 flex items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
+        <div className="mt-3 pt-3 border-t border-slate-200/80 dark:border-white/10 flex items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
           <span className="font-medium">USB Device Index:</span>
           <select
             value={webcamIndex}
@@ -176,7 +183,7 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
                 device_index: idx,
               });
             }}
-            className="bg-white dark:bg-slate-950/80 border border-slate-300 dark:border-slate-700/60 text-slate-800 dark:text-slate-200 rounded-lg px-2.5 py-1 text-xs shadow-sm cursor-pointer"
+            className="bg-white dark:bg-slate-900/80 border border-slate-200/80 dark:border-white/10 text-slate-800 dark:text-slate-100 rounded-lg px-2.5 py-1 text-xs shadow-sm cursor-pointer"
           >
             <option value={0}>Index 0 (Default Camera)</option>
             <option value={1}>Index 1 (Secondary USB)</option>

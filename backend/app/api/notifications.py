@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 import aiosqlite
 
 from app.core.database import get_db
+from app.services.sms_service import sms_service
 
 router = APIRouter()
 
@@ -151,7 +152,7 @@ async def dispatch_announcement(
     if payload.target_group_id:
         cursor = await db.execute(
             """
-            SELECT r.id, r.notif_preferences
+            SELECT r.id, r.phone_number, r.notif_preferences
             FROM responders r
             JOIN responder_group_members rgm ON r.id = rgm.responder_id
             WHERE rgm.group_id = ? AND r.status = 'active'
@@ -160,13 +161,14 @@ async def dispatch_announcement(
         )
     else:
         cursor = await db.execute(
-            "SELECT id, notif_preferences FROM responders WHERE status = 'active'"
+            "SELECT id, phone_number, notif_preferences FROM responders WHERE status = 'active'"
         )
 
     rows = await cursor.fetchall()
 
     # Filter recipients whose preferences allow this dispatch type
     recipient_ids = []
+    phone_numbers = []
     for r in rows:
         prefs_raw = r["notif_preferences"]
         try:
@@ -175,15 +177,21 @@ async def dispatch_announcement(
             prefs = {}
         if prefs.get(type_key, True):
             recipient_ids.append(r["id"])
+            if r["phone_number"]:
+                phone_numbers.append(r["phone_number"])
 
     recipient_count = len(recipient_ids)
     dispatch_id = f"disp-{uuid.uuid4().hex[:8]}"
+
+    # Dispatch SMS via local Phone Gateway / Mock service
+    sms_res = await sms_service.send_bulk_sms(phone_numbers=phone_numbers, message=payload.message)
+    dispatch_status = "DISPATCHED" if sms_res.get("status") == "SENT" else ("FAILED" if sms_res.get("status") == "FAILED" else "PARTIAL")
 
     await db.execute(
         """
         INSERT INTO notification_dispatches (
             id, type, title, message, target_group_id, recipient_count, status
-        ) VALUES (?, ?, ?, ?, ?, ?, 'DISPATCHED')
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
             dispatch_id,
@@ -192,6 +200,7 @@ async def dispatch_announcement(
             payload.message,
             payload.target_group_id,
             recipient_count,
+            dispatch_status,
         ),
     )
 
@@ -204,7 +213,7 @@ async def dispatch_announcement(
         "target_group_id": payload.target_group_id,
         "recipient_count": recipient_count,
         "recipient_ids": recipient_ids,
-        "status": "DISPATCHED",
+        "status": dispatch_status,
     }
     sync_id = f"sync-{uuid.uuid4().hex[:8]}"
     await db.execute(

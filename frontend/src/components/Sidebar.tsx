@@ -9,12 +9,9 @@ import {
   VolumeX,
   AlertTriangle,
   Users,
-  Sun,
-  Moon,
 } from 'lucide-react';
 import { getWeatherIcon } from '../utils/weather';
-import { RainHazard } from '../types';
-import { useTheme } from '../context/useTheme';
+import { WeatherSnapshot } from '../types';
 
 export type NavTabId = 'monitoring' | 'weather' | 'responders' | 'incidents' | 'diagnostics';
 
@@ -23,14 +20,7 @@ interface SidebarProps {
   onToggle: () => void;
   activeTab: NavTabId;
   onSelectTab: (tab: NavTabId) => void;
-  weather: {
-    is_online: boolean;
-    rainfall_mm: number;
-    temperature_c: number | null;
-    condition: string;
-    weather_code?: number | null;
-    rain_hazard?: RainHazard;
-  };
+  weather: WeatherSnapshot;
   isSirenMuted: boolean;
   onToggleMute: () => void;
   syncStatus: {
@@ -79,72 +69,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isSirenMuted,
   onToggleMute,
 }) => {
-  const { isDark, toggleTheme } = useTheme();
   const WeatherMiniIcon = getWeatherIcon(weather.weather_code);
   const isRainHazard = weather.rain_hazard?.active ?? false;
 
   return (
     <aside
-      className={`fixed top-0 bottom-0 left-0 z-40 flex flex-col border-r border-slate-200 dark:border-slate-800/80 bg-white/95 dark:bg-[#070D18]/95 backdrop-blur-xl transition-all duration-300 select-none ${
+      className={`fixed top-0 bottom-0 left-0 z-40 flex flex-col border-r border-slate-200 dark:border-slate-700/50 bg-white dark:bg-slate-800/30 dark:backdrop-blur-xl transition-all duration-200 select-none overflow-hidden ${
         isCollapsed ? 'w-20' : 'w-56'
       }`}
     >
       {/* 1. Header / Brand & Toggle */}
-      <div className="h-16 px-4 flex items-center justify-between border-b border-slate-200 dark:border-slate-800/70">
+      <div className="w-full px-5 flex items-center justify-between py-2 mt-1">
         {!isCollapsed && (
-          <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-primary/10 dark:bg-primary/25 border border-primary/20 dark:border-teal-500/30 shrink-0">
-              <img src="/agos.svg" alt="AGOS" className="w-5 h-5 object-contain" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <span className="font-bold text-base tracking-tight text-slate-900 dark:text-white leading-none">
-                AGOS
-              </span>
-              <span className="text-[10px] text-teal-600 dark:text-teal-400 font-medium tracking-wider uppercase mt-0.5">
-                Offline
-              </span>
-            </div>
-          </div>
-        )}
-
-        {isCollapsed && (
-          <div className="mx-auto">
-            <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-primary/10 dark:bg-primary/25 border border-primary/20 dark:border-teal-500/30">
-              <img src="/agos.svg" alt="AGOS" className="w-5 h-5 object-contain" />
-            </div>
+          <div className="rounded-md" title="AGOS Offline">
+            <img src="/agos.svg" alt="AGOS" className="w-7" />
           </div>
         )}
 
         <button
           type="button"
           onClick={onToggle}
-          className={`p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60 transition-colors cursor-pointer ${
-            isCollapsed ? 'hidden' : 'block'
-          }`}
-          title="Collapse sidebar"
-          aria-label="Collapse sidebar"
+          className="flex items-center justify-center rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors text-gray-500 dark:text-slate-400 cursor-pointer"
+          title="Toggle sidebar"
+          aria-label="Toggle sidebar"
         >
-          <PanelLeftClose className="w-4 h-4" />
+          {isCollapsed ? (
+            <PanelLeftOpen className="w-5 h-5" />
+          ) : (
+            <PanelLeftClose className="w-5 h-5" />
+          )}
         </button>
       </div>
 
-      {/* Collapse button when collapsed */}
-      {isCollapsed && (
-        <div className="py-2 flex justify-center border-b border-slate-200 dark:border-slate-800/40">
-          <button
-            type="button"
-            onClick={onToggle}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
-            title="Expand sidebar"
-            aria-label="Expand sidebar"
-          >
-            <PanelLeftOpen className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
       {/* 2. Navigation Items */}
-      <nav className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto">
+      <nav className="flex-1 px-5 py-4 space-y-2 overflow-y-auto">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -155,21 +113,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
               key={item.id}
               type="button"
               onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center rounded-xl transition-all cursor-pointer group ${
-                isCollapsed ? 'justify-center p-3' : 'px-3.5 py-2.5 gap-3'
+              className={`w-full flex items-center rounded-xl transition-colors cursor-pointer ${
+                isCollapsed ? 'justify-center p-3' : 'gap-2 py-3.5 px-3'
               } ${
                 isActive
-                  ? 'bg-primary text-white font-semibold shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/50 font-medium'
+                  ? isCollapsed
+                    ? 'bg-primary/10 dark:bg-blue-500/10 text-primary dark:text-blue-400'
+                    : 'border-l-[4px] bg-primary/5 dark:bg-blue-500/10 border-primary dark:border-blue-500 text-primary dark:text-blue-400 font-semibold'
+                  : 'text-neutral dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800'
               }`}
               title={isCollapsed ? item.name : undefined}
             >
               <div className="relative shrink-0">
-                <Icon
-                  className={`w-5 h-5 transition-transform group-hover:scale-105 ${
-                    isActive ? 'text-teal-300' : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-slate-200'
-                  }`}
-                />
+                <Icon className="w-5 h-5" />
                 {isWeatherTab && isRainHazard && (
                   <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500 animate-ping" />
                 )}
@@ -177,7 +133,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               {!isCollapsed && (
                 <div className="flex items-center justify-between flex-1 min-w-0">
-                  <span className="truncate text-xs tracking-tight">{item.name}</span>
+                  <span className="truncate text-[0.9rem]">{item.name}</span>
                   {isWeatherTab && isRainHazard && (
                     <span className="flex items-center gap-1 text-[9px] font-bold bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30 px-1.5 py-0.5 rounded-full uppercase">
                       <AlertTriangle className="w-2.5 h-2.5" />
@@ -220,7 +176,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </button>
 
-        {/* Connectivity & Controls (Siren & Sun/Moon Toggle) */}
+        {/* Connectivity & Emergency Siren Controls */}
         <div
           className={`flex items-center ${
             isCollapsed ? 'flex-col gap-2' : 'justify-between px-1'
@@ -235,20 +191,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {!isCollapsed && <span className="font-medium text-slate-700 dark:text-slate-300">Local Offline</span>}
           </div>
 
-          {/* Action Buttons: Theme Toggle & Emergency Siren Mute */}
-          <div className="flex items-center gap-1.5">
-            {/* Theme Toggle Button */}
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="p-1.5 rounded-lg border transition-colors cursor-pointer bg-white hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-              title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-              aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-            >
-              {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
-            </button>
-
-            {/* Emergency Siren Mute Toggle */}
+          {/* Emergency Siren Mute Toggle */}
+          <div className="flex items-center">
             <button
               type="button"
               onClick={onToggleMute}

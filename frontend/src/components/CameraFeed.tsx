@@ -211,7 +211,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
 
         // Label for ROI
         ctx.fillStyle = 'rgba(6, 182, 212, 0.9)';
-        const roiText = `GRATE ROI CALIBRATED (${((rx2 - rx1) * 100).toFixed(0)}% x ${((ry2 - ry1) * 100).toFixed(0)}%)`;
+        const roiText = `DRAIN CAMERA AREA (${((rx2 - rx1) * 100).toFixed(0)}% x ${((ry2 - ry1) * 100).toFixed(0)}%)`;
         ctx.font = 'bold 10px ui-monospace, monospace';
         const rw = ctx.measureText(roiText).width;
         ctx.fillRect(grateX1, grateY1 - 16, rw + 8, 16);
@@ -480,15 +480,15 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
       </div>
 
       {/* Bottom Center Watermark / Local Edge Guarantee */}
-      <div className="absolute bottom-2.5 left-3 flex items-center gap-1.5 pointer-events-none z-10 text-[11px] text-slate-400 bg-slate-950/80 px-2.5 py-1 rounded-lg border border-slate-800/80">
+      <div className="absolute bottom-2.5 left-3 flex items-center gap-1.5 pointer-events-none z-10 text-[11px] text-slate-300 bg-slate-950/80 px-2.5 py-1 rounded-lg border border-slate-800/80 shadow-md">
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-        <span>100% On-Premises Local Inference</span>
+        <span>100% Offline (Local AI)</span>
       </div>
 
       {/* Bottom Right Live Telemetry Pill */}
       <div className="absolute bottom-2 right-3 pointer-events-none z-10 font-mono text-xs">
         <div
-          className={`px-3 py-1.5 rounded flex items-center gap-2 border shadow-lg backdrop-blur-md ${
+          className={`px-3 py-1.5 rounded-xl flex items-center gap-2 border shadow-lg backdrop-blur-md ${
             currentStatus === 'CRITICAL BLOCKED' || currentStatus === 'CRITICAL'
               ? 'bg-rose-950/80 border-rose-500 text-rose-200 animate-pulse'
               : currentStatus === 'WARNING'
@@ -498,9 +498,9 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
         >
           <span className="font-bold tracking-wider uppercase">{String(currentStatus || 'CLEAR')}</span>
           <span className="text-white/60">|</span>
-          <span className="font-bold">{occlusionRatio}% Occlusion</span>
+          <span className="font-bold">{occlusionRatio}% Blocked</span>
           <span className="text-white/60">|</span>
-          <span className="text-slate-300">{detections.length} Debris Items</span>
+          <span className="text-slate-300">{detections.length} Trash Items</span>
         </div>
       </div>
     </div>

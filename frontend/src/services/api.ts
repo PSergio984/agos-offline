@@ -2,6 +2,7 @@ import {
   Incident,
   ModelStatus,
   RainHazard,
+  WeatherSnapshot,
   ROI,
   StreamSource,
   Responder,
@@ -9,6 +10,10 @@ import {
   NotificationTemplate,
   AnnouncementPayload,
   NotificationLog,
+  SmsGatewayConfig,
+  SmsTestRequest,
+  DispatchRequestPayload,
+  DispatchStatusResponse,
 } from '../types';
 
 const API_BASE = '/api/v1';
@@ -158,17 +163,36 @@ export async function resolveIncident(incidentId: string): Promise<boolean> {
   }
 }
 
-export async function fetchWeather(): Promise<{
-  is_online: boolean;
-  rainfall_mm: number;
-  temperature_c: number | null;
-  humidity_pct: number | null;
-  condition: string;
-  message: string;
-  cached?: boolean;
-  weather_code?: number | null;
-  rain_hazard?: RainHazard;
-}> {
+export async function dispatchIncident(
+  incidentId: string,
+  payload: DispatchRequestPayload
+): Promise<any> {
+  const res = await fetch(`${API_BASE}/incidents/${incidentId}/dispatch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Dispatch failed with HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+export async function fetchIncidentDispatchStatus(
+  incidentId: string
+): Promise<DispatchStatusResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/incidents/${incidentId}/dispatch-status`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[API] Could not fetch incident dispatch status:', err);
+  }
+  return null;
+}
+
+export async function fetchWeather(): Promise<WeatherSnapshot> {
   try {
     const res = await fetch(`${API_BASE}/weather`);
     if (res.ok) {
@@ -327,8 +351,8 @@ const DEFAULT_TEMPLATES: NotificationTemplate[] = [
   {
     id: 'tmpl-blockage',
     type: 'blockage',
-    title: 'Curb Grate Blockage Alert',
-    message: 'URGENT: Culvert grate blockage detected at {location}. Surface coverage: {occlusion_ratio}%. Immediate clearance required.',
+    title: 'Canal Blockage Alert',
+    message: 'URGENT: Canal blockage detected at {location}. Blockage level: {blockage_level}%. Please clear immediately.',
   },
   {
     id: 'tmpl-warning',
@@ -346,7 +370,7 @@ const DEFAULT_TEMPLATES: NotificationTemplate[] = [
     id: 'tmpl-announcement',
     type: 'announcement',
     title: 'General DRRMO Advisory',
-    message: 'COMMUNITY ADVISORY: Drainage maintenance scheduled for {location} on {time}. Keep grates clear.',
+    message: 'COMMUNITY ADVISORY: Drainage maintenance scheduled for {location} on {time}. Keep drains clear.',
   },
 ];
 
@@ -354,8 +378,8 @@ const DEFAULT_LOGS: NotificationLog[] = [
   {
     id: 'log-01',
     type: 'blockage',
-    title: 'Curb Grate Blockage Alert',
-    message: 'URGENT: Culvert grate blockage detected at Brgy. San Jose, Rizal Ave cor. Mabini St.. Surface coverage: 78.4%. Immediate clearance required.',
+    title: 'Canal Blockage Alert',
+    message: 'URGENT: Canal blockage detected at Brgy. San Jose, Rizal Ave cor. Mabini St.. Blockage level: 78.4%. Please clear immediately.',
     target_group_id: 'grp-poblacion',
     target_group_name: 'Barangay Poblacion QRT',
     recipient_count: 2,
@@ -679,3 +703,75 @@ export async function fetchNotificationLogs(): Promise<NotificationLog[]> {
   }
   return getStoredOr('agos_notification_logs', DEFAULT_LOGS);
 }
+
+// ---------------------------------------------------------------------------
+// Phone SMS Gateway API
+// ---------------------------------------------------------------------------
+
+export async function fetchSmsConfig(): Promise<SmsGatewayConfig> {
+  try {
+    const res = await fetch(`${API_BASE}/sms/config`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[API] Could not fetch SMS config:', err);
+  }
+  return {
+    id: 'default',
+    enabled: 1,
+    mode: 'mock',
+    gateway_url: 'http://192.168.1.100:8080',
+    api_key: 'admin:secret',
+    cooldown_minutes: 15,
+    max_retries: 3,
+    default_group_id: 'grp-drainage',
+    last_ping_status: 'UNKNOWN',
+    last_ping_at: null,
+  };
+}
+
+export async function updateSmsConfig(payload: Partial<SmsGatewayConfig>): Promise<SmsGatewayConfig> {
+  const res = await fetch(`${API_BASE}/sms/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to update SMS config: ${res.statusText}`);
+  }
+  return await res.json();
+}
+
+export async function pingSmsGateway(): Promise<{
+  status: string;
+  mode: string;
+  message: string;
+  pinged_at: string;
+  gateway_url?: string;
+}> {
+  const res = await fetch(`${API_BASE}/sms/ping`);
+  if (!res.ok) {
+    throw new Error(`Failed to ping SMS gateway: ${res.statusText}`);
+  }
+  return await res.json();
+}
+
+export async function testSmsGateway(payload: SmsTestRequest): Promise<{
+  status: string;
+  phone_number: string;
+  mode?: string;
+  delivered_at?: string;
+}> {
+  const res = await fetch(`${API_BASE}/sms/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(errData.detail || `SMS test failed: ${res.statusText}`);
+  }
+  return await res.json();
+}
+

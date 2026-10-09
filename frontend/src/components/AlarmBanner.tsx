@@ -81,10 +81,10 @@ export const AlarmBanner: React.FC<AlarmBannerProps> = ({
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 pt-3 pb-1">
       <div
-        className={`max-w-[1720px] mx-auto rounded-2xl p-3 sm:px-5 sm:py-3.5 backdrop-blur-md border shadow-lg transition-all duration-300 ${
+        className={`max-w-[1720px] mx-auto rounded-2xl p-3 sm:px-5 sm:py-3.5 backdrop-blur-xl border shadow-lg transition-all duration-300 ${
           isCritical
-            ? 'bg-rose-50/95 border-rose-300 text-rose-950 dark:bg-rose-950/70 dark:border-rose-500/40 dark:text-rose-100 shadow-rose-950/10'
-            : 'bg-amber-50/95 border-amber-300 text-amber-950 dark:bg-amber-950/60 dark:border-amber-500/40 dark:text-amber-100 shadow-amber-950/10'
+            ? 'bg-rose-50/90 border-rose-300/80 text-rose-950 dark:bg-rose-950/40 dark:border-rose-500/30 dark:text-rose-100 shadow-rose-950/10'
+            : 'bg-amber-50/90 border-amber-300/80 text-amber-950 dark:bg-amber-950/40 dark:border-amber-500/30 dark:text-amber-100 shadow-amber-950/10'
         }`}
       >
         <div className="flex flex-col md:flex-row items-center justify-between gap-3">
@@ -112,11 +112,11 @@ export const AlarmBanner: React.FC<AlarmBannerProps> = ({
                   {status}
                 </span>
 
-                <span className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">
-                  {occlusionRatio.toFixed(1)}% Occlusion
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">
+                  {occlusionRatio.toFixed(1)}% Occlusion (Drain Blockage)
                 </span>
 
-                <span className="text-xs text-slate-600 dark:text-slate-300 hidden sm:inline font-medium">
+                <span className="text-xs text-slate-600 dark:text-slate-400 hidden sm:inline font-medium">
                   • {cameraName}
                 </span>
 
@@ -130,8 +130,8 @@ export const AlarmBanner: React.FC<AlarmBannerProps> = ({
 
               <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 mt-0.5 truncate font-medium">
                 {isCritical
-                  ? 'Critical drainage obstruction: Grate intake is severely blocked. Immediate clearing required.'
-                  : 'Debris accumulating at grate intake. Monitor for rapid water rise.'}
+                  ? 'Critical drainage obstruction: Drain is heavily blocked. Immediate clearing required.'
+                  : 'Debris accumulating at drainage inlet. Monitor for rapid water rise.'}
               </p>
             </div>
           </div>
@@ -145,8 +145,8 @@ export const AlarmBanner: React.FC<AlarmBannerProps> = ({
               title={isMuted ? 'Unmute Emergency Siren' : 'Mute Emergency Siren'}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border shadow-sm cursor-pointer ${
                 isMuted
-                  ? 'bg-white dark:bg-slate-900/60 border-slate-300 dark:border-slate-700/60 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  : 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-500/20 dark:border-rose-400/40 dark:text-rose-200 hover:bg-rose-200 dark:hover:bg-rose-500/30'
+                  ? 'bg-white/80 dark:bg-white/[0.05] border-slate-200/80 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  : 'bg-rose-100/90 text-rose-800 border-rose-300/80 dark:bg-rose-500/20 dark:border-rose-400/30 dark:text-rose-200 hover:bg-rose-200 dark:hover:bg-rose-500/30'
               }`}
             >
               {isMuted ? <VolumeX className="w-4 h-4 text-slate-500" /> : <Volume2 className="w-4 h-4 text-rose-600 dark:text-rose-300 animate-pulse" />}
@@ -158,7 +158,7 @@ export const AlarmBanner: React.FC<AlarmBannerProps> = ({
               <button
                 type="button"
                 onClick={handleAcknowledge}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700/60 transition-colors shadow-sm cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/80 dark:bg-white/[0.05] hover:bg-slate-100 dark:hover:bg-white/[0.1] text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-white/10 transition-colors shadow-sm cursor-pointer"
               >
                 <BellRing className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                 <span>Acknowledge</span>

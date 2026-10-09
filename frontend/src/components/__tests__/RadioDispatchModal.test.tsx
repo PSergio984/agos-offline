@@ -27,4 +27,11 @@ describe('RadioDispatchModal rain hazard', () => {
     fireEvent.click(screen.getByRole('button', { name: /Mark Unit Dispatched/i }));
     expect(onDispatched).toHaveBeenCalledTimes(1);
   });
+
+  it('renders shared ticket ID in radio script and header', () => {
+    render(<RadioDispatchModal {...baseProps} initialRadioTicket="RAD-ALPHA1" />);
+    expect(screen.getAllByText(/Ticket RAD-ALPHA1/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Dispatch ticket RAD-ALPHA1/i)).toBeInTheDocument();
+  });
 });
+

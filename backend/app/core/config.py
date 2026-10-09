@@ -56,8 +56,9 @@ class Settings(BaseSettings):
 
     # Weather polling and rain hazard (context for operators only, never feeds alarms or cadence)
     WEATHER_FETCH_INTERVAL_SECONDS: float = 600.0
-    WEATHER_LAT: float = 14.5995
-    WEATHER_LON: float = 120.9842
+    WEATHER_LAT: float = 14.7011
+    WEATHER_LON: float = 120.9830
+    WEATHER_LOCATION_NAME: str = "Valenzuela City"
     # PAGASA orange rainfall warning starts at 15 mm in the last hour (orange = 15 to 30 mm/h,
     # red = more than 30 mm/h). Sources:
     # https://www.gmanetwork.com/news/scitech/science/268941/pagasa-revises-rainfall-warning-system-changes-code-green-to-orange/story/
