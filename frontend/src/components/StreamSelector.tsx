@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { StreamSource, StreamSourceType } from '../types';
 import { switchStream } from '../services/api';
-import { Video, Camera, Network, Play, Check } from 'lucide-react';
+import { Camera, Network, Play, Check } from 'lucide-react';
 
 interface StreamSelectorProps {
   cameraId: string;
@@ -87,134 +87,94 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
   };
 
   return (
-    <div className="bg-eoc-dark/80 border border-eoc-border rounded-xl p-4 shadow-lg backdrop-blur-md">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
-        <div>
-          <h4 className="text-sm font-bold text-slate-100 flex items-center gap-2">
-            <Video className="w-4 h-4 text-cyan-400" />
-            <span>Video Ingestion Source</span>
-          </h4>
-          <p className="text-xs text-slate-400">
-            Switch between offline MP4 evaluation loops, local USB webcams, or municipal RTSP IP cameras
-          </p>
+    <div className="bg-[#0B1526]/80 border border-slate-800/80 rounded-2xl p-3 sm:p-4 shadow-md backdrop-blur-md">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        {/* Source Switcher Segmented Tabs */}
+        <div className="flex items-center gap-1.5 bg-slate-950/60 p-1 rounded-xl border border-slate-800/70 overflow-x-auto">
+          {PRESET_SOURCES.map((source) => {
+            const isActive =
+              activeSource.type === source.type &&
+              (source.type !== 'rtsp' || activeSource.id === source.id);
+            const Icon =
+              source.type === 'demo' ? Play : source.type === 'webcam' ? Camera : Network;
+
+            return (
+              <button
+                key={source.id}
+                type="button"
+                onClick={() => handleSelectPreset(source)}
+                disabled={isSwitching}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
+                  isActive
+                    ? 'bg-primary text-white shadow-sm font-semibold'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-teal-300' : 'text-slate-400'}`} />
+                <span>{source.name}</span>
+                {isActive && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
+                )}
+              </button>
+            );
+          })}
         </div>
 
+        {/* Status Notification */}
         {statusMessage && (
-          <div className="flex items-center gap-1.5 text-xs text-cyan-300 font-mono bg-cyan-950/80 px-2.5 py-1 rounded border border-cyan-800">
-            <Check className="w-3.5 h-3.5 text-cyan-400" />
+          <div className="flex items-center gap-1.5 text-xs text-teal-300 bg-teal-500/10 px-3 py-1 rounded-full border border-teal-500/20">
+            <Check className="w-3.5 h-3.5 text-teal-400" />
             <span>{statusMessage}</span>
           </div>
         )}
       </div>
 
-      {/* Preset Source Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-        {PRESET_SOURCES.map((source) => {
-          const isActive = activeSource.type === source.type && (source.type !== 'rtsp' || activeSource.id === source.id);
-          const Icon = source.type === 'demo' ? Play : source.type === 'webcam' ? Camera : Network;
+      {/* Contextual Configuration Row for RTSP & Webcam */}
+      {selectedType === 'rtsp' && (
+        <div className="mt-3 pt-3 border-t border-slate-800/60 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <input
+            type="text"
+            value={customRtspUrl}
+            onChange={(e) => setCustomRtspUrl(e.target.value)}
+            placeholder="rtsp://admin:password@192.168.1.100:554/stream1"
+            className="flex-1 bg-slate-950/80 border border-slate-700/60 text-slate-200 rounded-xl px-3 py-1.5 text-xs focus:border-teal-500 focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={handleApplyCustomRtsp}
+            disabled={isSwitching}
+            className="px-4 py-1.5 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <Network className="w-3.5 h-3.5 text-teal-300" />
+            <span>Connect RTSP</span>
+          </button>
+        </div>
+      )}
 
-          return (
-            <button
-              key={source.id}
-              type="button"
-              onClick={() => handleSelectPreset(source)}
-              disabled={isSwitching}
-              className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between group ${
-                isActive
-                  ? 'bg-cyan-950/40 border-cyan-500 shadow-md shadow-cyan-950/50'
-                  : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900/90'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`p-2 rounded-lg ${
-                      isActive ? 'bg-cyan-500/20 text-cyan-400' : 'bg-slate-800 text-slate-400 group-hover:text-slate-200'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-slate-200 block">{source.name}</span>
-                    <span className="text-[10px] text-slate-500 font-mono uppercase">
-                      {source.type}
-                    </span>
-                  </div>
-                </div>
-
-                {isActive && (
-                  <span className="flex items-center gap-1 text-[10px] font-mono bg-cyan-900 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-500">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-                    ACTIVE
-                  </span>
-                )}
-              </div>
-
-              <div className="mt-2 text-[11px] text-slate-400 truncate font-mono">
-                {source.description}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Additional Controls for Custom RTSP or Webcam selection */}
-      <div className="mt-3 pt-3 border-t border-slate-800/80 flex flex-col sm:flex-row items-center gap-3">
-        {selectedType === 'rtsp' && (
-          <div className="w-full flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-            <div className="relative flex-1">
-              <input
-                type="text"
-                value={customRtspUrl}
-                onChange={(e) => setCustomRtspUrl(e.target.value)}
-                placeholder="rtsp://admin:password@192.168.1.100:554/stream1"
-                className="w-full bg-slate-950 border border-slate-700 text-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:border-cyan-500 focus:outline-none"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={handleApplyCustomRtsp}
-              disabled={isSwitching}
-              className="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
-            >
-              <Network className="w-3.5 h-3.5" />
-              <span>Connect RTSP</span>
-            </button>
-          </div>
-        )}
-
-        {selectedType === 'webcam' && (
-          <div className="w-full flex items-center gap-3 text-xs text-slate-400 font-mono">
-            <span>USB Video Device Index:</span>
-            <select
-              value={webcamIndex}
-              onChange={(e) => {
-                const idx = parseInt(e.target.value, 10);
-                setWebcamIndex(idx);
-                handleSelectPreset({
-                  id: 'usb-webcam',
-                  type: 'webcam',
-                  name: `USB Webcam #${idx}`,
-                  description: `Device Index ${idx}`,
-                  device_index: idx,
-                });
-              }}
-              className="bg-slate-950 border border-slate-700 text-slate-200 rounded px-2 py-1 text-xs font-mono"
-            >
-              <option value={0}>Index 0 (Default Camera)</option>
-              <option value={1}>Index 1 (Secondary USB)</option>
-              <option value={2}>Index 2 (Tertiary)</option>
-            </select>
-          </div>
-        )}
-
-        {selectedType === 'demo' && (
-          <div className="w-full text-[11px] text-slate-400 flex items-center gap-1.5 font-mono">
-            <span className="text-cyan-400 font-bold">MODE:</span>
-            <span>Local demo loop active (`sample_media/drainage_demo.mp4`). Continuous playback with simulated or actual OpenCV loop.</span>
-          </div>
-        )}
-      </div>
+      {selectedType === 'webcam' && (
+        <div className="mt-3 pt-3 border-t border-slate-800/60 flex items-center gap-3 text-xs text-slate-400">
+          <span>USB Device Index:</span>
+          <select
+            value={webcamIndex}
+            onChange={(e) => {
+              const idx = parseInt(e.target.value, 10);
+              setWebcamIndex(idx);
+              handleSelectPreset({
+                id: 'usb-webcam',
+                type: 'webcam',
+                name: `USB Webcam #${idx}`,
+                description: `Device Index ${idx}`,
+                device_index: idx,
+              });
+            }}
+            className="bg-slate-950/80 border border-slate-700/60 text-slate-200 rounded-lg px-2.5 py-1 text-xs"
+          >
+            <option value={0}>Index 0 (Default Camera)</option>
+            <option value={1}>Index 1 (Secondary USB)</option>
+            <option value={2}>Index 2 (Tertiary)</option>
+          </select>
+        </div>
+      )}
     </div>
   );
 };

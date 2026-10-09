@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { FrameTelemetry, ROI, Detection, OcclusionStatus } from '../types';
-import { Radio, Cpu, Activity, Clock } from 'lucide-react';
+import { Activity, Clock } from 'lucide-react';
 
 interface CameraFeedProps {
   roi: ROI;
@@ -383,7 +383,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
   }, [startSimulation, onTelemetryUpdate]);
 
   return (
-    <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden border border-eoc-border shadow-2xl flex items-center justify-center select-none group">
+    <div className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-slate-800/80 shadow-2xl flex items-center justify-center select-none group font-sans">
       {/* Underlying HTML5 Canvas for Live CCTV Frames */}
       <canvas
         ref={canvasRef}
@@ -394,54 +394,49 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
 
       {/* Top Left Feed HUD */}
       <div className="absolute top-3 left-3 flex flex-wrap items-center gap-2 pointer-events-none z-10">
-        <div className="flex items-center gap-2 bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded border border-slate-700/80 shadow-md">
-          <span className="relative flex h-2.5 w-2.5">
+        <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800/80 shadow-md">
+          <span className="relative flex h-2 w-2">
             <span
               className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
                 connectionStatus === 'connected'
                   ? 'bg-emerald-400'
                   : connectionStatus === 'simulated'
-                  ? 'bg-cyan-400'
+                  ? 'bg-teal-400'
                   : 'bg-amber-400'
               }`}
             />
             <span
-              className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+              className={`relative inline-flex rounded-full h-2 w-2 ${
                 connectionStatus === 'connected'
                   ? 'bg-emerald-500'
                   : connectionStatus === 'simulated'
-                  ? 'bg-cyan-500'
+                  ? 'bg-teal-500'
                   : 'bg-amber-500'
               }`}
             />
           </span>
-          <span className="text-xs font-mono font-bold tracking-wider uppercase text-slate-200">
+          <span className="text-[11px] font-semibold tracking-wide uppercase text-slate-200">
             {connectionStatus === 'connected'
-              ? 'LIVE CCTV'
+              ? 'Live Stream'
               : connectionStatus === 'simulated'
-              ? 'SIMULATED FEED'
-              : 'CONNECTING...'}
+              ? 'Demo Simulation'
+              : 'Connecting...'}
           </span>
         </div>
 
-        <div className="hidden sm:flex items-center gap-1.5 bg-slate-900/80 backdrop-blur-md px-2.5 py-1.5 rounded border border-slate-800 text-slate-300 text-xs font-mono">
-          <Radio className="w-3.5 h-3.5 text-cyan-400" />
+        <div className="hidden sm:flex items-center gap-1.5 bg-slate-950/70 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-slate-800/80 text-slate-300 text-xs">
           <span>{cameraName}</span>
-        </div>
-
-        <div className="bg-slate-900/80 backdrop-blur-md px-2.5 py-1.5 rounded border border-slate-800 text-slate-400 text-xs font-mono">
-          <span>RES: 1280x720</span>
         </div>
       </div>
 
       {/* Top Right Live Metrics HUD (FPS & Latency) */}
-      <div className="absolute top-3 right-3 flex items-center gap-2 pointer-events-none z-10 font-mono text-xs">
+      <div className="absolute top-3 right-3 flex items-center gap-2 pointer-events-none z-10 text-xs">
         {/* Real-time FPS Meter */}
-        <div className="flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md px-2.5 py-1.5 rounded border border-slate-700/80 shadow-md">
-          <Activity className="w-3.5 h-3.5 text-cyan-400" />
-          <span className="text-slate-400 font-medium">FPS:</span>
+        <div className="flex items-center gap-1.5 bg-slate-950/80 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-slate-800/80 shadow-md">
+          <Activity className="w-3.5 h-3.5 text-teal-400" />
+          <span className="text-slate-400 text-[11px]">FPS:</span>
           <span
-            className={`font-bold ${
+            className={`font-semibold font-mono text-xs ${
               fps >= 8 ? 'text-emerald-400' : fps >= 4 ? 'text-amber-400' : 'text-rose-400'
             }`}
           >
@@ -450,29 +445,23 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
         </div>
 
         {/* Real-time Latency Meter */}
-        <div className="flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md px-2.5 py-1.5 rounded border border-slate-700/80 shadow-md">
+        <div className="flex items-center gap-1.5 bg-slate-950/80 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-slate-800/80 shadow-md">
           <Clock className="w-3.5 h-3.5 text-amber-400" />
-          <span className="text-slate-400 font-medium">LATENCY:</span>
+          <span className="text-slate-400 text-[11px]">Latency:</span>
           <span
-            className={`font-bold ${
+            className={`font-semibold font-mono text-xs ${
               latency < 50 ? 'text-emerald-400' : latency < 120 ? 'text-amber-400' : 'text-rose-400'
             }`}
           >
             {latency > 0 ? `${latency}ms` : '22ms'}
           </span>
         </div>
-
-        {/* Local AI Engine Badge */}
-        <div className="hidden md:flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md px-2.5 py-1.5 rounded border border-slate-700/80 text-slate-300">
-          <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-          <span className="text-[11px] text-cyan-300">YOLOv8 ONNX</span>
-        </div>
       </div>
 
       {/* Bottom Center Watermark / Local Edge Guarantee */}
-      <div className="absolute bottom-2 left-3 flex items-center gap-2 pointer-events-none z-10 text-[10px] font-mono text-slate-400/80 bg-slate-950/70 px-2 py-1 rounded border border-slate-800/60">
-        <div className="w-1.5 h-1.5 rounded-full bg-cyan-400"></div>
-        <span>PHILIPPINE LGU DRRMO • 100% AIR-GAPPED LOCAL INGESTION</span>
+      <div className="absolute bottom-2.5 left-3 flex items-center gap-1.5 pointer-events-none z-10 text-[11px] text-slate-400 bg-slate-950/80 px-2.5 py-1 rounded-lg border border-slate-800/80">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+        <span>100% On-Premises Local Inference</span>
       </div>
 
       {/* Bottom Right Live Telemetry Pill */}

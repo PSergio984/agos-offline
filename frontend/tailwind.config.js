@@ -8,19 +8,38 @@ export default {
   theme: {
     extend: {
       colors: {
+        primary: '#0A3D62',
+        accent: '#1ABC9C',
+        background: '#F0F4F8',
+        'background-dark': '#050B14',
+        neutral: '#2C3E50',
+        clear: '#2ECC71',
+        partial: '#F39C12',
+        blocked: '#E74C3C',
         eoc: {
-          darkest: '#080c14',
-          darker: '#0d131f',
-          dark: '#141d2e',
-          card: '#182235',
-          border: '#24324d',
-          accent: '#06b6d4',
-          warning: '#f59e0b',
-          danger: '#ef4444',
-          success: '#10b981',
+          darkest: '#050B14',
+          darker: '#0A1322',
+          dark: '#0E1B2E',
+          card: '#112038',
+          border: '#1E314D',
+          accent: '#1ABC9C',
+          warning: '#F39C12',
+          danger: '#E74C3C',
+          success: '#2ECC71',
         }
       },
       fontFamily: {
+        sans: [
+          'Poppins',
+          'ui-sans-serif',
+          'system-ui',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'Segoe UI',
+          'Roboto',
+          'Noto Sans',
+          'sans-serif',
+        ],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
       },
       keyframes: {

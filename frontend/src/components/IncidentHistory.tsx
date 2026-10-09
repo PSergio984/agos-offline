@@ -75,15 +75,17 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
   });
 
   const content = (
-    <div className="flex flex-col h-full bg-eoc-dark text-slate-100">
+    <div className="flex flex-col h-full bg-[#0B1526]/90 text-slate-100 font-sans">
       {/* Header */}
-      <div className="p-4 border-b border-slate-800 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <History className="w-5 h-5 text-cyan-400" />
+      <div className="p-4 sm:px-6 border-b border-slate-800/80 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-primary/30 text-teal-400 rounded-xl border border-teal-500/20">
+            <History className="w-5 h-5" />
+          </div>
           <div>
-            <h3 className="font-bold text-sm text-white">Drainage Obstruction Incident Log</h3>
-            <p className="text-[11px] text-slate-400">
-              Offline records from local SQLite (`storage/incidents/`)
+            <h3 className="font-bold text-sm sm:text-base text-white tracking-tight">Drainage Incident Log</h3>
+            <p className="text-xs text-slate-400">
+              On-premises history stored in SQLite (`storage/incidents/`)
             </p>
           </div>
         </div>
@@ -93,16 +95,16 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
             type="button"
             onClick={loadIncidents}
             disabled={isLoading}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors border border-slate-700"
+            className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-800 cursor-pointer"
             title="Refresh Incidents"
           >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-cyan-400' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-teal-400' : ''}`} />
           </button>
           {isOpenAsDrawer && onCloseDrawer && (
             <button
               type="button"
               onClick={onCloseDrawer}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+              className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -111,15 +113,15 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
       </div>
 
       {/* Filters & Search */}
-      <div className="p-3 bg-slate-900/60 border-b border-slate-800 flex flex-col sm:flex-row items-center gap-2">
+      <div className="p-4 sm:px-6 bg-slate-950/40 border-b border-slate-800/80 flex flex-col sm:flex-row items-center gap-3">
         <div className="relative flex-1 w-full">
-          <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search camera, barangay, or ID..."
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-500 font-mono"
+            placeholder="Search camera, location, or incident ID..."
+            className="w-full bg-slate-950/80 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-teal-500 placeholder:text-slate-500"
           />
         </div>
 
@@ -129,10 +131,10 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
               key={filter}
               type="button"
               onClick={() => setStatusFilter(filter)}
-              className={`px-2.5 py-1 rounded text-[11px] font-mono font-medium transition-colors whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors whitespace-nowrap cursor-pointer ${
                 statusFilter === filter
-                  ? 'bg-cyan-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                  ? 'bg-primary text-white shadow-sm'
+                  : 'bg-slate-900/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
               }`}
             >
               {filter}
@@ -215,12 +217,12 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
                 <div className="flex items-center gap-2 self-end sm:self-center flex-shrink-0">
                   {incident.action_taken && (
                     <span
-                      className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                      className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full border ${
                         incident.action_taken === 'DISPATCHED'
-                          ? 'bg-cyan-950 text-cyan-300 border-cyan-800'
+                          ? 'bg-teal-500/10 text-teal-300 border-teal-500/20'
                           : incident.action_taken === 'RESOLVED'
-                          ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                          : 'bg-slate-800 text-slate-300 border-slate-700'
+                          ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+                          : 'bg-slate-900 text-slate-400 border-slate-800'
                       }`}
                     >
                       {incident.action_taken}
@@ -231,10 +233,10 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
                   <button
                     type="button"
                     onClick={() => setInspectingIncident(incident)}
-                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-mono flex items-center gap-1.5 transition-colors"
+                    className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
                     title="Inspect Forensic Snapshot"
                   >
-                    <Camera className="w-3 h-3 text-cyan-400" />
+                    <Camera className="w-3.5 h-3.5 text-teal-400" />
                     <span className="hidden sm:inline">Inspect</span>
                   </button>
 
@@ -242,10 +244,10 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
                     <button
                       type="button"
                       onClick={() => onSelectIncidentForRadio(incident)}
-                      className="px-2.5 py-1 rounded bg-slate-800 hover:bg-cyan-950 text-slate-300 hover:text-cyan-300 border border-slate-700 hover:border-cyan-700 text-xs font-mono flex items-center gap-1.5 transition-colors"
+                      className="px-3 py-1.5 rounded-xl bg-primary/20 hover:bg-primary/40 text-teal-300 border border-teal-500/30 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
                       title="Dispatch via Radio"
                     >
-                      <Radio className="w-3 h-3" />
+                      <Radio className="w-3.5 h-3.5 text-teal-300" />
                       <span className="hidden sm:inline">Radio</span>
                     </button>
                   )}
@@ -257,9 +259,9 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
       </div>
 
       {/* Footer Summary */}
-      <div className="p-3 bg-slate-900/80 border-t border-slate-800 text-[11px] font-mono text-slate-400 flex items-center justify-between">
-        <span>Total Incidents: {filteredIncidents.length}</span>
-        <span className="text-cyan-400">Offline SQLite: storage/incidents/</span>
+      <div className="p-3.5 sm:px-6 bg-slate-950/60 border-t border-slate-800/80 text-xs text-slate-400 flex items-center justify-between">
+        <span>Recorded Incidents: {filteredIncidents.length}</span>
+        <span className="text-teal-400 font-mono text-[11px]">storage/incidents/agos.db</span>
       </div>
 
       {/* Forensic Snapshot & Inspection Modal */}
@@ -376,7 +378,7 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
   if (isOpenAsDrawer) {
     return (
       <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
-        <div className="w-full max-w-xl h-full shadow-2xl border-l border-cyan-500/30 flex flex-col">
+        <div className="w-full max-w-xl h-full shadow-2xl border-l border-slate-800 flex flex-col">
           {content}
         </div>
       </div>
@@ -384,7 +386,7 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
   }
 
   return (
-    <div className="rounded-xl border border-eoc-border overflow-hidden shadow-lg bg-eoc-dark/90">
+    <div className="rounded-2xl border border-slate-800/80 overflow-hidden shadow-xl bg-[#0B1526]/90">
       {content}
     </div>
   );

@@ -79,74 +79,78 @@ export const AlarmBanner: React.FC<AlarmBannerProps> = ({
   }
 
   return (
-    <div
-      className={`w-full transition-all duration-300 z-40 border-b shadow-xl ${
-        isCritical
-          ? 'bg-rose-950/95 border-rose-500 text-rose-50 animate-alarm-glow'
-          : 'bg-amber-950/95 border-amber-500 text-amber-50 animate-warning-glow'
-      }`}
-    >
-      <div className="max-w-7xl mx-auto px-4 py-2.5 sm:px-6 lg:px-8">
+    <div className="w-full px-4 sm:px-6 lg:px-8 pt-3 pb-1">
+      <div
+        className={`max-w-[1720px] mx-auto rounded-2xl p-3 sm:px-5 sm:py-3.5 backdrop-blur-md border shadow-lg transition-all duration-300 ${
+          isCritical
+            ? 'bg-rose-950/70 border-rose-500/40 text-rose-100'
+            : 'bg-amber-950/60 border-amber-500/40 text-amber-100'
+        }`}
+      >
         <div className="flex flex-col md:flex-row items-center justify-between gap-3">
           {/* Left: Alarm Status & Message */}
           <div className="flex items-center gap-3.5 flex-1 min-w-0">
             <div
-              className={`p-2 rounded-lg flex-shrink-0 animate-bounce ${
-                isCritical ? 'bg-rose-600 text-white shadow-lg shadow-rose-900/50' : 'bg-amber-500 text-slate-950'
+              className={`p-2.5 rounded-xl flex-shrink-0 ${
+                isCritical
+                  ? 'bg-rose-600/20 text-rose-400 border border-rose-500/30'
+                  : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
               }`}
             >
-              {isCritical ? <Flame className="w-6 h-6" /> : <AlertTriangle className="w-6 h-6" />}
+              {isCritical ? <Flame className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
             </div>
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span
-                  className={`text-xs uppercase font-mono font-extrabold px-2 py-0.5 rounded tracking-wider ${
-                    isCritical ? 'bg-rose-600 text-white' : 'bg-amber-500 text-slate-950'
+                  className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full tracking-wide uppercase ${
+                    isCritical
+                      ? 'bg-rose-600 text-white'
+                      : 'bg-amber-500 text-slate-950'
                   }`}
                 >
                   {status}
                 </span>
 
-                <span className="font-mono text-sm font-bold text-white">
-                  OCCLUSION: {occlusionRatio.toFixed(1)}%
+                <span className="text-sm font-bold text-white tracking-tight">
+                  {occlusionRatio.toFixed(1)}% Occlusion
                 </span>
 
-                <span className="text-xs text-white/70 font-mono hidden sm:inline">
+                <span className="text-xs text-slate-300 hidden sm:inline">
                   • {cameraName}
                 </span>
 
                 {isAcknowledged && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-mono bg-slate-900/80 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/50">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30">
                     <CheckCircle className="w-3 h-3" />
-                    ACKNOWLEDGED BY DESK
+                    Acknowledged
                   </span>
                 )}
               </div>
 
-              <p className="text-xs sm:text-sm text-slate-200 mt-0.5 truncate font-medium">
+              <p className="text-xs sm:text-sm text-slate-300 mt-0.5 truncate">
                 {isCritical
-                  ? 'CRITICAL DRAINAGE OBSTRUCTION: Grate opening severely occluded by solid waste. Immediate mobile patrol dispatch required.'
-                  : 'ACCUMULATING DEBRIS WARNING: Solid waste obstructing grate intake. Monitor for rapid rise or queue clearance.'}
+                  ? 'Critical drainage obstruction: Grate intake is severely blocked. Immediate clearing required.'
+                  : 'Debris accumulating at grate intake. Monitor for rapid water rise.'}
               </p>
             </div>
           </div>
 
-          {/* Right: Quick Action Controls */}
+          {/* Right: Action Controls */}
           <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto justify-end">
-            {/* Audio Siren Enable/Mute Toggle */}
+            {/* Siren Toggle */}
             <button
               type="button"
               onClick={handleToggleMute}
               title={isMuted ? 'Unmute Emergency Siren' : 'Mute Emergency Siren'}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all border ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border ${
                 isMuted
-                  ? 'bg-slate-900/80 border-slate-700 text-slate-400 hover:text-white'
-                  : 'bg-rose-900/80 border-rose-400 text-rose-200 hover:bg-rose-800'
+                  ? 'bg-slate-900/60 border-slate-700/60 text-slate-400 hover:text-white'
+                  : 'bg-rose-500/20 border-rose-400/40 text-rose-200 hover:bg-rose-500/30'
               }`}
             >
               {isMuted ? <VolumeX className="w-4 h-4 text-slate-400" /> : <Volume2 className="w-4 h-4 text-rose-300 animate-pulse" />}
-              <span>{isMuted ? 'SIREN MUTED' : 'SIREN ACTIVE'}</span>
+              <span>{isMuted ? 'Siren Muted' : 'Siren Active'}</span>
             </button>
 
             {/* Acknowledge Toggle */}
@@ -154,22 +158,22 @@ export const AlarmBanner: React.FC<AlarmBannerProps> = ({
               <button
                 type="button"
                 onClick={handleAcknowledge}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900/80 hover:bg-slate-800 text-slate-200 hover:text-white border border-slate-700 transition-colors shadow-sm"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-900/60 hover:bg-slate-800 text-slate-200 border border-slate-700/60 transition-colors shadow-sm"
               >
-                <BellRing className="w-4 h-4 text-amber-400" />
+                <BellRing className="w-3.5 h-3.5 text-amber-400" />
                 <span>Acknowledge</span>
               </button>
             )}
 
-            {/* VHF/UHF Voice Radio Dispatch Button */}
+            {/* Radio Dispatch Button */}
             {onOpenRadioDispatch && (
               <button
                 type="button"
                 onClick={onOpenRadioDispatch}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white border border-cyan-400 shadow-md shadow-cyan-950/50 transition-all hover:scale-105"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-primary hover:bg-primary/90 text-white border border-teal-500/30 shadow-md transition-all hover:scale-[1.02] active:scale-[0.98]"
               >
-                <Radio className="w-4 h-4 text-cyan-100" />
-                <span>Radio Dispatch Ticket</span>
+                <Radio className="w-3.5 h-3.5 text-teal-300" />
+                <span>Dispatch Radio Team</span>
               </button>
             )}
           </div>

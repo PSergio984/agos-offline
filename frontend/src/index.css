@@ -4,25 +4,25 @@
 
 @layer base {
   body {
-    @apply bg-eoc-darkest text-slate-100 font-sans;
+    @apply bg-[#050B14] text-slate-100 font-sans antialiased;
     margin: 0;
     padding: 0;
     overflow-x: hidden;
   }
 
-  /* Custom high-tech dark scrollbar */
+  /* Refined subtle scrollbar */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #080c14;
+    background: #050B14;
   }
   ::-webkit-scrollbar-thumb {
-    background: #1e293b;
-    border-radius: 3px;
+    background: #1E293B;
+    border-radius: 4px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #06b6d4;
+    background: #1ABC9C;
   }
 }

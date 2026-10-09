@@ -237,19 +237,16 @@ export const ROIEditor: React.FC<ROIEditorProps> = ({
       </div>
 
       {/* Floating Toolbar Controls */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 bg-slate-900/95 border border-cyan-500/40 backdrop-blur-md rounded-xl p-3 shadow-2xl flex items-center gap-3">
-        <div className="flex items-center gap-2 pr-3 border-r border-slate-700 text-xs font-mono text-slate-300">
-          <Sliders className="w-4 h-4 text-cyan-400" />
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 bg-[#0B1526]/95 border border-slate-700/60 backdrop-blur-md rounded-2xl p-2.5 sm:p-3 shadow-2xl flex items-center gap-3 font-sans">
+        <div className="flex items-center gap-2 pr-3 border-r border-slate-700/80 text-xs text-slate-300">
+          <Sliders className="w-4 h-4 text-teal-400" />
           <span className="font-semibold text-white">ROI Calibrator</span>
-          <span className="text-slate-400 text-[11px] hidden sm:inline">
-            [{xMin.toFixed(2)}, {yMin.toFixed(2)}, {xMax.toFixed(2)}, {yMax.toFixed(2)}]
-          </span>
         </div>
 
         <button
           type="button"
           onClick={handleReset}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors border border-slate-700"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-800 cursor-pointer"
         >
           <RotateCcw className="w-3.5 h-3.5" />
           <span>Reset</span>
@@ -259,10 +256,10 @@ export const ROIEditor: React.FC<ROIEditorProps> = ({
           type="button"
           onClick={handleSave}
           disabled={isSaving}
-          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all shadow-md ${
+          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-semibold transition-all shadow-md cursor-pointer ${
             saveSuccess
               ? 'bg-emerald-600 text-white'
-              : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-cyan-900/40'
+              : 'bg-primary hover:bg-primary/90 text-white'
           }`}
         >
           {saveSuccess ? (
@@ -282,7 +279,7 @@ export const ROIEditor: React.FC<ROIEditorProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors border border-slate-700"
+            className="px-3.5 py-1.5 rounded-xl text-xs font-medium bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-800 cursor-pointer"
           >
             Done
           </button>
