@@ -254,3 +254,81 @@ def test_deploy_with_allow_no_negatives_marks_sidecar(tmp_path, wired):
     sidecar = json.loads((prod_dir / "best.onnx.json").read_text())
     assert sidecar["negatives_checked"] is False
     assert "negatives not checked" in sidecar["gate_note"]
+
+
+# ---------------------------------------------------------------- explicit, recorded gate override
+
+OVERRIDE_REASON = "User decision: only model passing the stage demo replay; validated on public data only"
+
+
+def _failing_dataset(tmp_path):
+    data_yaml = make_dataset(tmp_path, positives=[(0, 100)] * 10, negatives=20)
+    wrong = {k: (150, 200) for k in range(1, 11)}  # 25 points off on every positive
+    return data_yaml, wrong
+
+
+def test_failing_gate_with_deploy_and_no_override_still_exits_2_without_backup_or_sidecar(tmp_path, wired):
+    run, prod, prod_dir, _ = wired
+    data_yaml, wrong = _failing_dataset(tmp_path)
+    assert run(data_yaml, wrong, "--deploy") == 2
+    assert prod.read_bytes() == b"OLD-WEIGHTS"
+    assert [p.name for p in prod_dir.iterdir()] == ["best.onnx"]  # no backup, no sidecar
+
+
+def test_override_with_failing_gate_deploys_backs_up_and_records_override(tmp_path, wired, caplog):
+    run, prod, prod_dir, report_dir = wired
+    data_yaml, wrong = _failing_dataset(tmp_path)
+    assert run(data_yaml, wrong, "--deploy", "--override-gate", OVERRIDE_REASON) == 0
+    assert prod.read_bytes() == b"NEW-WEIGHTS"
+    backups = list(prod_dir.glob("best.previous.*.onnx"))
+    assert len(backups) == 1 and backups[0].read_bytes() == b"OLD-WEIGHTS"
+
+    sidecar = json.loads((prod_dir / "best.onnx.json").read_text())
+    assert sidecar["gate_passed"] is False
+    assert sidecar["gate_overridden"] is True
+    assert sidecar["override_reason"] == OVERRIDE_REASON
+    assert sidecar["gate_failures"] and any("within" in f for f in sidecar["gate_failures"])
+    assert sidecar["metrics"]["within_fraction"] == 0.0
+    assert sidecar["validated_on"] == "public data only"
+    assert sidecar["license"] == "AGPL-3.0 (Ultralytics YOLOv8)"
+    assert sidecar["sha256"] == ebm.sha256_of(prod)
+    assert sidecar["model_version"].endswith("-gate-overridden")
+
+    report = json.loads((report_dir / "gate_report.json").read_text())
+    assert report["gate_passed"] is False and report["gate_overridden"] is True
+    assert report["override_reason"] == OVERRIDE_REASON
+    md = (report_dir / "gate_report.md").read_text()
+    assert "OVERRIDDEN" in md and OVERRIDE_REASON in md
+    assert "GATE OVERRIDDEN" in caplog.text
+
+
+def test_override_without_deploy_does_not_deploy(tmp_path, wired):
+    run, prod, prod_dir, report_dir = wired
+    data_yaml, wrong = _failing_dataset(tmp_path)
+    assert run(data_yaml, wrong, "--override-gate", OVERRIDE_REASON) == 2
+    assert prod.read_bytes() == b"OLD-WEIGHTS"
+    assert [p.name for p in prod_dir.iterdir()] == ["best.onnx"]
+    assert json.loads((report_dir / "gate_report.json").read_text())["gate_overridden"] is False
+
+
+def test_override_with_passing_gate_is_a_normal_deploy(tmp_path, wired):
+    run, prod, prod_dir, _ = wired
+    data_yaml = make_dataset(tmp_path, positives=[(0, 100)] * 10, negatives=20)
+    right = {k: (0, 100) for k in range(1, 11)}
+    assert run(data_yaml, right, "--deploy", "--override-gate", OVERRIDE_REASON) == 0
+    assert prod.read_bytes() == b"NEW-WEIGHTS"
+    sidecar = json.loads((prod_dir / "best.onnx.json").read_text())
+    assert sidecar["gate_passed"] is True and sidecar["gate_overridden"] is False
+    assert sidecar["override_reason"] is None and sidecar["gate_failures"] == []
+    assert not sidecar["model_version"].endswith("-gate-overridden")
+
+
+@pytest.mark.parametrize("reason", ["", "   ", "\t\n"])
+def test_blank_override_reason_is_rejected(tmp_path, wired, reason):
+    run, prod, prod_dir, _ = wired
+    data_yaml, wrong = _failing_dataset(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        run(data_yaml, wrong, "--deploy", "--override-gate", reason)
+    assert exc.value.code != 0
+    assert prod.read_bytes() == b"OLD-WEIGHTS"
+    assert [p.name for p in prod_dir.iterdir()] == ["best.onnx"]

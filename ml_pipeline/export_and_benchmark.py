@@ -11,6 +11,11 @@ images show coverage >= 20 (the warning threshold). With fewer than --min-neg-im
 the negative check fails closed unless --allow-no-negatives is given (then the result is marked
 "negatives not checked"). `backend/app/ml/weights/best.onnx` is only replaced when `--deploy` is
 given AND the gate passes; a failed gate exits with code 2. Results are "validated on public data only".
+
+Explicit override: `--deploy --override-gate "<reason>"` deploys even when the gate FAILS. It is loud and
+recorded (warning log, `gate_report.json/.md`, sidecar fields gate_passed=false, gate_overridden=true,
+override_reason, gate_failures, and a `-gate-overridden` model_version suffix). Thresholds never change;
+without the override a failing gate still exits 2 and leaves the production weights untouched.
 """
 
 from __future__ import annotations
@@ -162,8 +167,21 @@ SIDECAR_METRICS = ("median_abs_error", "p90_abs_error", "within_fraction", "max_
                    "negative_fp_rate", "status_agreement", "positive_images", "negative_images")
 
 
+OVERRIDE_SUFFIX = "-gate-overridden"
+
+
+def non_empty_reason(text: str) -> str:
+    """argparse type for --override-gate: a blank reason is not an acceptable audit trail."""
+    if not text.strip():
+        raise argparse.ArgumentTypeError("override reason must be a non-empty string")
+    return text.strip()
+
+
 def deploy_weights(onnx_path: Path, report: dict[str, Any], training_source: str, prod: Path = PROD_WEIGHTS) -> dict[str, Any]:
-    """Back up current production weights, copy the new ones and write the sidecar."""
+    """Back up current production weights, copy the new ones and write the sidecar.
+
+    When report["gate_overridden"] is true the sidecar records the failed gate and the override reason.
+    """
     prod.parent.mkdir(parents=True, exist_ok=True)
     if prod.exists():
         backup = prod.parent / f"best.previous.{sha256_of(prod)[:8]}.onnx"
@@ -172,8 +190,10 @@ def deploy_weights(onnx_path: Path, report: dict[str, Any], training_source: str
     if onnx_path.resolve() != prod.resolve():
         shutil.copy2(onnx_path, prod)
     digest = sha256_of(prod)
+    overridden = bool(report.get("gate_overridden"))
+    suffix = OVERRIDE_SUFFIX if overridden else ""
     sidecar = {
-        "model_version": f"debris-yolov8n-{dt.date.today():%Y%m%d}-{digest[:8]}",
+        "model_version": f"debris-yolov8n-{dt.date.today():%Y%m%d}-{digest[:8]}{suffix}",
         "sha256": digest,
         "size_bytes": prod.stat().st_size,
         "training_source": training_source,
@@ -183,6 +203,10 @@ def deploy_weights(onnx_path: Path, report: dict[str, Any], training_source: str
         "metrics": {k: report["metrics"][k] for k in SIDECAR_METRICS},
         "negatives_checked": report["negatives_checked"],
         "gate_note": report["gate_note"],
+        "gate_passed": report["gate_passed"],
+        "gate_overridden": overridden,
+        "override_reason": report.get("override_reason") if overridden else None,
+        "gate_failures": list(report["gate_failures"]),
     }
     prod.with_name(prod.name + ".json").write_text(json.dumps(sidecar, indent=2) + "\n", encoding="utf-8")
     logger.info("Deployed %s (%s)", prod, sidecar["model_version"])
@@ -204,9 +228,14 @@ def write_reports(report: dict[str, Any], out_dir: Path) -> None:
         f"- Status agreement (clear/partial/blocked, informational): {m['status_agreement']:.1%}",
         f"- Gate: {'PASS' if report['gate_passed'] else 'FAIL'}",
     ]
+    if report.get("gate_overridden"):
+        lines.insert(3, "**GATE OVERRIDDEN: these weights were deployed although the coverage gate FAILED.**")
+        lines.insert(4, "")
     lines += [f"  - {r}" for r in report["gate_failures"]]
     if report["gate_note"]:
         lines.append(f"  - {report['gate_note']}")
+    if report.get("gate_overridden"):
+        lines.append(f"- OVERRIDDEN by user: {report['override_reason']}")
     if report.get("benchmark"):
         b = report["benchmark"]
         lines += ["", f"CPU benchmark ({b['intra_op_threads']} threads, {b['iterations']} runs): "
@@ -229,6 +258,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--allow-no-negatives", action="store_true",
                    help="Pass without a negative check when too few negatives exist (flagged 'negatives not checked')")
     p.add_argument("--deploy", action="store_true", help="Replace production best.onnx (only if the gate passes)")
+    p.add_argument("--override-gate", metavar="REASON", type=non_empty_reason, default=None,
+                   help="With --deploy, deploy even though the gate FAILS; REASON is recorded in the sidecar and reports")
     p.add_argument("--allow-synthetic", action="store_true", help="Allow a synthetic dataset (smoke test only, never deploys)")
     p.add_argument("--report-dir", default="ml_pipeline/runs/gate")
     args = p.parse_args(argv)
@@ -269,6 +300,7 @@ def main(argv: list[str] | None = None) -> int:
     gate = apply_gate(metrics, args.min_within_fraction, args.max_neg_fp_rate, args.min_neg_images,
                       args.allow_no_negatives)
     failures = gate["failures"]
+    overridden = bool(failures and args.override_gate and args.deploy)
     first_img = next(iter(evaluate.iter_images(images_dir)), None)
     benchmark = benchmark_cpu(onnx_file, cv2.imread(str(first_img)), args.iterations) if first_img else None
 
@@ -278,7 +310,8 @@ def main(argv: list[str] | None = None) -> int:
                  "max_neg_fp_rate": args.max_neg_fp_rate, "min_neg_images": args.min_neg_images,
                  "allow_no_negatives": args.allow_no_negatives},
         "gate_passed": gate["passed"], "gate_failures": failures, "negatives_checked": gate["negatives_checked"],
-        "gate_note": gate["note"], "benchmark": benchmark, "validated_on": "public data only",
+        "gate_note": gate["note"], "gate_overridden": overridden,
+        "override_reason": args.override_gate if overridden else None, "benchmark": benchmark, "validated_on": "public data only",
         "per_image": records,
     }
     write_reports(report, Path(args.report_dir))
@@ -289,8 +322,13 @@ def main(argv: list[str] | None = None) -> int:
     if gate["note"]:
         logger.warning(gate["note"])
 
-    if failures:
+    if failures and overridden:
+        logger.warning("GATE OVERRIDDEN: gate FAILED (%s) but deploying anyway. Reason: %s",
+                       "; ".join(failures), args.override_gate)
+    elif failures:
         logger.error("Gate FAILED: %s. Production weights untouched.", "; ".join(failures))
+        if args.override_gate:
+            logger.error("--override-gate ignored: it only takes effect together with --deploy.")
         return EXIT_GATE_FAILED
     if args.deploy:
         source = manifest.get("source") or ", ".join(s["name"] for s in manifest.get("sources", [])) or "unknown"

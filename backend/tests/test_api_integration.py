@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import json
 import sqlite3
 import time
 from datetime import datetime, timezone
@@ -630,6 +631,12 @@ def test_stream_tick_key_sets_unchanged(client: TestClient, boxes):
     assert set(tick["connection"]) == {"is_connected", "is_synthetic", "source_type", "source", "error"}
 
 
+def _sidecar_model_version() -> str:
+    """model_version recorded in the live weights sidecar (changes whenever new weights are deployed)."""
+    sidecar = settings.WEIGHTS_PATH.with_name(settings.WEIGHTS_PATH.name + ".json")
+    return json.loads(sidecar.read_text(encoding="utf-8"))["model_version"]
+
+
 def test_connect_sends_connected_then_model_status(client: TestClient, boxes):
     with client.websocket_connect("/ws") as ws:
         assert ws.receive_json()["type"] == "connected"
@@ -641,7 +648,7 @@ def test_connect_sends_connected_then_model_status(client: TestClient, boxes):
     expected_sha = hashlib.sha256(settings.WEIGHTS_PATH.read_bytes()).hexdigest()
     assert data["weights_sha256"] == expected_sha
     assert data["sidecar_hash_match"] is True
-    assert data["model_version"] == "legacy-unknown"
+    assert data["model_version"] == _sidecar_model_version()
     assert data["class_names"] == ["debris"]
     assert data["input_source"] == "demo"
 
@@ -680,7 +687,7 @@ def test_incident_created_envelope_is_tagged_demo(client: TestClient, boxes):
         created = _wait_for(ws, "incident_created")["data"]
     assert created["source_type"] == "demo"
     assert created["status"] == "CRITICAL"
-    assert created["model_version"] == "legacy-unknown"
+    assert created["model_version"] == _sidecar_model_version()
     listed = {i["id"]: i for i in client.get("/api/v1/incidents").json()}
     assert listed[created["id"]]["source_type"] == "demo"
     assert listed[created["id"]]["model_sha256"] == created["model_sha256"]
