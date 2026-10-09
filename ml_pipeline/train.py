@@ -47,6 +47,7 @@ def train_yolo(
     output_project: Path = Path("ml_pipeline/runs"),
     run_name: str = "debris_yolov8n",
     allow_synthetic: bool = False,
+    weights: str = "yolov8n.pt",
 ) -> Path:
     """Train YOLOv8n with Ultralytics and return the best.pt path."""
     data_yaml = data_yaml.resolve()
@@ -62,7 +63,7 @@ def train_yolo(
     device = device or default_device()
     logger.info("Training: epochs=%d imgsz=%d batch=%d device=%s workers=%d hours=%s patience=%d",
                 epochs, imgsz, batch_size, device, workers, hours, patience)
-    model = YOLO("yolov8n.pt")
+    model = YOLO(weights)
     kwargs = {"time": hours} if hours else {}
     model.train(
         data=str(data_yaml),
@@ -105,12 +106,14 @@ def main() -> None:
     parser.add_argument("--project", default="ml_pipeline/runs")
     parser.add_argument("--name", default="debris_yolov8n")
     parser.add_argument("--allow-synthetic", action="store_true", help="Allow the synthetic starter set (smoke test only)")
+    parser.add_argument("--weights", default="yolov8n.pt", help="Starting checkpoint (e.g. a previous best.pt to fine-tune)")
     args = parser.parse_args()
 
     train_yolo(
         data_yaml=Path(args.data), epochs=args.epochs, imgsz=args.imgsz, batch_size=args.batch,
         device=args.device, workers=args.workers, hours=args.hours, patience=args.patience,
         output_project=Path(args.project), run_name=args.name, allow_synthetic=args.allow_synthetic,
+        weights=args.weights,
     )
 
 

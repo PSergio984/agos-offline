@@ -46,6 +46,7 @@ backend/app/ml/weights/best.previous.*.onnx
 ml_pipeline/dataset_cache/
 ml_pipeline/dataset_quick/
 ml_pipeline/dataset_gate/
+ml_pipeline/dataset_quick_neg/
 ml_pipeline/quick_train.py
 ml_pipeline/DATASET_LICENSES_QUICK.md
 ml_pipeline/runs/
