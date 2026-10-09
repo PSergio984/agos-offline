@@ -65,24 +65,24 @@ export const RadioDispatchModal: React.FC<RadioDispatchModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-[#0B1526] border border-slate-700/70 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col font-sans">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-[#0B1526] border border-slate-200 dark:border-slate-700/70 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col font-sans text-slate-800 dark:text-slate-100 transition-colors">
         {/* Header */}
-        <div className="p-4 sm:px-6 border-b border-slate-800/80 flex items-center justify-between">
+        <div className="p-4 sm:px-6 border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-primary/30 text-teal-400 rounded-xl border border-teal-500/30">
+            <div className="p-2.5 bg-primary/10 dark:bg-primary/30 text-primary dark:text-teal-400 rounded-xl border border-primary/20 dark:border-teal-500/30 shadow-sm">
               <Radio className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-white text-base tracking-tight">
+                <h3 className="font-bold text-primary dark:text-white text-base tracking-tight">
                   Voice Radio Dispatch Ticket
                 </h3>
-                <span className="text-[10px] font-medium bg-teal-500/10 text-teal-300 border border-teal-500/20 px-2 py-0.5 rounded-full">
+                <span className="text-[10px] font-semibold bg-teal-50 text-teal-800 dark:bg-teal-500/10 dark:text-teal-300 border border-teal-200 dark:border-teal-500/20 px-2 py-0.5 rounded-full">
                   Two-Way Tactical
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                 LGU Disaster Risk Reduction & Management Emergency Channel
               </p>
             </div>
@@ -90,24 +90,24 @@ export const RadioDispatchModal: React.FC<RadioDispatchModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors"
+            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content Body */}
-        <div className="p-5 sm:p-6 space-y-4 text-sm text-slate-200">
+        <div className="p-5 sm:p-6 space-y-4 text-sm text-slate-700 dark:text-slate-200">
           {/* Tactical Channel & Unit Config */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-400 mb-1.5">
                 Radio Frequency / Channel:
               </label>
               <select
                 value={selectedChannel}
                 onChange={(e) => setSelectedChannel(e.target.value)}
-                className="w-full bg-slate-950/80 border border-slate-800 text-slate-100 rounded-xl px-3 py-2 text-xs focus:border-teal-500 focus:outline-none"
+                className="w-full bg-white dark:bg-slate-950/80 border border-slate-300 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-3 py-2 text-xs focus:border-teal-500 focus:outline-none shadow-sm cursor-pointer"
               >
                 <option value="CH-14 (156.700 MHz DRRMO Tac 1)">CH-14 (156.700 MHz DRRMO Tac 1)</option>
                 <option value="CH-08 (152.225 MHz Barangay Net)">CH-08 (152.225 MHz Barangay Net)</option>
@@ -117,13 +117,13 @@ export const RadioDispatchModal: React.FC<RadioDispatchModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-400 mb-1.5">
                 Assigned Responder Unit:
               </label>
               <select
                 value={patrolUnit}
                 onChange={(e) => setPatrolUnit(e.target.value)}
-                className="w-full bg-slate-950/80 border border-slate-800 text-slate-100 rounded-xl px-3 py-2 text-xs focus:border-teal-500 focus:outline-none"
+                className="w-full bg-white dark:bg-slate-950/80 border border-slate-300 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-3 py-2 text-xs focus:border-teal-500 focus:outline-none shadow-sm cursor-pointer"
               >
                 <option value="Mobile Patrol Unit 4 (Tango-4)">Mobile Patrol Unit 4 (Tango-4)</option>
                 <option value="Barangay San Jose Tanod Quick Response">Barangay San Jose Tanod Quick Response</option>
@@ -134,46 +134,46 @@ export const RadioDispatchModal: React.FC<RadioDispatchModalProps> = ({
           </div>
 
           {/* Incident Snapshot Summary */}
-          <div className="bg-slate-950/50 rounded-xl p-3.5 border border-slate-800/80 text-xs space-y-2">
-            <div className="flex items-center justify-between text-slate-400">
-              <span className="flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-teal-400" />
+          <div className="bg-slate-50 dark:bg-slate-950/50 rounded-xl p-3.5 border border-slate-200 dark:border-slate-800/80 text-xs space-y-2">
+            <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+              <span className="flex items-center gap-1.5 font-medium">
+                <MapPin className="w-3.5 h-3.5 text-primary dark:text-teal-400" />
                 <span>Location:</span>
               </span>
-              <span className="text-white font-medium">{location}</span>
+              <span className="text-slate-900 dark:text-white font-semibold">{location}</span>
             </div>
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Occlusion Ratio:</span>
-              <span className="text-rose-400 font-bold">{occlusionRatio.toFixed(1)}% ({status})</span>
+            <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+              <span className="font-medium">Occlusion Ratio:</span>
+              <span className="text-rose-600 dark:text-rose-400 font-bold">{occlusionRatio.toFixed(1)}% ({status})</span>
             </div>
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Detected Debris:</span>
-              <span className="text-amber-300 font-medium">{debrisTypes.join(', ') || 'Solid waste cluster'}</span>
+            <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
+              <span className="font-medium">Detected Debris:</span>
+              <span className="text-amber-700 dark:text-amber-300 font-semibold">{debrisTypes.join(', ') || 'Solid waste cluster'}</span>
             </div>
           </div>
 
           {/* Pre-Formatted Verbal Radio Script (Primary Focus) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="flex items-center gap-1.5 text-xs font-semibold text-teal-300">
-                <Mic className="w-3.5 h-3.5 text-teal-400" />
+              <label className="flex items-center gap-1.5 text-xs font-bold text-teal-800 dark:text-teal-300">
+                <Mic className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
                 <span>Verbal Radio Script (Read on Air)</span>
               </label>
-              <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                <Volume2 className="w-3 h-3 text-slate-500" />
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1 font-medium">
+                <Volume2 className="w-3 h-3 text-slate-400" />
                 Standard Voice SOP
               </span>
             </div>
 
             <div className="relative group">
-              <div className="w-full bg-slate-950/90 p-4 rounded-xl border border-teal-500/30 text-teal-100 font-mono text-xs sm:text-sm leading-relaxed">
+              <div className="w-full bg-teal-50/90 dark:bg-slate-950/90 p-4 rounded-xl border border-teal-200 dark:border-teal-500/30 text-teal-950 dark:text-teal-100 font-mono text-xs sm:text-sm leading-relaxed shadow-sm">
                 "{radioScript}"
               </div>
 
               <button
                 type="button"
                 onClick={handleCopy}
-                className="absolute top-2.5 right-2.5 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-white text-xs font-medium transition-all shadow-md active:scale-95 cursor-pointer"
+                className="absolute top-2.5 right-2.5 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-white text-xs font-semibold transition-all shadow-md active:scale-95 cursor-pointer"
               >
                 {copied ? (
                   <>
@@ -191,8 +191,8 @@ export const RadioDispatchModal: React.FC<RadioDispatchModalProps> = ({
           </div>
 
           {/* Operator Instructions Banner */}
-          <div className="flex items-start gap-2 bg-slate-950/40 p-3 rounded-xl border border-slate-800/80 text-[11px] text-slate-400">
-            <AlertCircle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2 bg-amber-50 dark:bg-slate-950/40 p-3 rounded-xl border border-amber-200 dark:border-slate-800/80 text-[11px] text-amber-900 dark:text-slate-400 font-medium">
+            <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
             <p>
               Hold mic 5cm away. Key PTT switch for 1 second before speaking to allow repeater synchronization. Confirm unit callsign upon acknowledgment.
             </p>
@@ -200,11 +200,11 @@ export const RadioDispatchModal: React.FC<RadioDispatchModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 sm:px-6 bg-slate-950/60 border-t border-slate-800/80 flex items-center justify-between">
+        <div className="p-4 sm:px-6 bg-slate-50 dark:bg-slate-950/60 border-t border-slate-200 dark:border-slate-800/80 flex items-center justify-between">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+            className="px-4 py-2 rounded-xl text-xs font-medium bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white border border-slate-300 dark:border-slate-800 transition-colors cursor-pointer shadow-sm"
           >
             Cancel
           </button>
@@ -213,7 +213,7 @@ export const RadioDispatchModal: React.FC<RadioDispatchModalProps> = ({
             <button
               type="button"
               onClick={handleCopy}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium bg-slate-900 hover:bg-slate-800 text-teal-300 hover:text-teal-200 border border-slate-800 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-teal-700 dark:text-teal-300 border border-slate-300 dark:border-slate-800 transition-colors cursor-pointer shadow-sm"
             >
               <Copy className="w-3.5 h-3.5" />
               <span>{copied ? 'Copied' : 'Copy'}</span>

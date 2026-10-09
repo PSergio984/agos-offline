@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     STREAM_WIDTH: int = 640
     STREAM_HEIGHT: int = 480
     INFERENCE_INTERVAL_SECONDS: float = 3.0
+    ENABLE_ADAPTIVE_INFERENCE: bool = True
+    INFERENCE_INTERVAL_CLEAR: float = 30.0
+    INFERENCE_INTERVAL_BURST: float = 3.0
     
     # Default Region of Interest [x_min, y_min, x_max, y_max] normalized 0..1
     DEFAULT_ROI: List[float] = [0.20, 0.40, 0.80, 0.90]

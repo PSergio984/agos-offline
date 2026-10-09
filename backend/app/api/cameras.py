@@ -1,7 +1,7 @@
 import uuid
 from typing import List, Optional, Dict, Any, Union
 from fastapi import APIRouter, HTTPException, Depends, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 import aiosqlite
 
 from app.core.config import settings

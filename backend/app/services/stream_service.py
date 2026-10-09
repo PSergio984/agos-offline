@@ -7,7 +7,7 @@ import sqlite3
 import logging
 import threading
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict, Any, Union
+from typing import Optional, Tuple, List, Dict, Any
 from datetime import datetime
 
 import cv2
@@ -64,6 +64,11 @@ class StreamService:
         )
         self._last_inference_time: float = 0.0
         self._last_incident_time: float = 0.0
+        self._current_inference_interval: float = (
+            settings.INFERENCE_INTERVAL_CLEAR
+            if settings.ENABLE_ADAPTIVE_INFERENCE
+            else settings.INFERENCE_INTERVAL_SECONDS
+        )
 
         # Latest detection payload cache for WS streaming
         self._latest_detection: Dict[str, Any] = {
@@ -307,7 +312,6 @@ class StreamService:
         while not self._stop_event.is_set():
             with self._lock:
                 current_source = self._source
-                current_cam_id = self._camera_id
 
             source_type, resolved_target = self._determine_source_type(current_source)
             with self._lock:
@@ -414,7 +418,12 @@ class StreamService:
     def _run_inference_if_due(self, frame: np.ndarray) -> None:
         """Run YOLOv8 inference and grate occlusion geometry if inference interval elapsed."""
         now = time.time()
-        if (now - self._last_inference_time) < settings.INFERENCE_INTERVAL_SECONDS:
+        interval = (
+            self._current_inference_interval
+            if settings.ENABLE_ADAPTIVE_INFERENCE
+            else settings.INFERENCE_INTERVAL_SECONDS
+        )
+        if (now - self._last_inference_time) < interval:
             return
 
         self._last_inference_time = now
@@ -443,7 +452,15 @@ class StreamService:
             )
             smoothed_ratio = self._temporal_filter.smoothed_ratio
 
-            # 4. Cache structured detection telemetry
+            # 4. Adaptive Cadence Adjustment
+            if settings.ENABLE_ADAPTIVE_INFERENCE:
+                # If debris is present in ROI or status is non-clear, trigger rapid burst to confirm
+                if occlusion_res.ratio > 0.0 or confirmed_status != OcclusionStatus.CLEAR:
+                    self._current_inference_interval = settings.INFERENCE_INTERVAL_BURST
+                else:
+                    self._current_inference_interval = settings.INFERENCE_INTERVAL_CLEAR
+
+            # 5. Cache structured detection telemetry
             detection_payload = {
                 "occlusion_ratio": smoothed_ratio,
                 "raw_ratio": occlusion_res.ratio,
@@ -453,13 +470,14 @@ class StreamService:
                 "debris_count": len(detections),
                 "roi": current_roi,
                 "camera_id": cam_id,
+                "interval_seconds": self._current_inference_interval,
                 "timestamp": datetime.now().isoformat(),
             }
 
             with self._lock:
                 self._latest_detection = detection_payload
 
-            # 5. Automatically record CRITICAL blockage incident to SQLite with 60s cooldown
+            # 6. Automatically record CRITICAL blockage incident to SQLite with 60s cooldown
             if confirmed_status == OcclusionStatus.CRITICAL:
                 if (now - self._last_incident_time) >= 60.0:
                     self._last_incident_time = now

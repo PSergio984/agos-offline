@@ -13,23 +13,23 @@ const PRESET_SOURCES: StreamSource[] = [
   {
     id: 'demo-mp4',
     type: 'demo',
-    name: 'Demo Video (MP4)',
-    description: 'sample_media/drainage_demo.mp4 (Offline Culvert Loop)',
+    name: 'Demo Video (MP4 Loop)',
+    description: 'sample_media/drainage_demo.mp4',
     url: 'sample_media/drainage_demo.mp4',
   },
   {
     id: 'usb-webcam',
     type: 'webcam',
-    name: 'USB Webcam (Direct)',
-    description: 'Hardware V4L2 / DirectShow Device Index #0',
+    name: 'USB Webcam',
+    description: 'Direct local USB video device (index 0)',
     device_index: 0,
   },
   {
-    id: 'rtsp-cctv',
+    id: 'rtsp-stream',
     type: 'rtsp',
-    name: 'Municipal CCTV RTSP',
-    description: 'Live H.264/H.265 RTSP Stream (Local Intranet)',
-    url: 'rtsp://admin:pass@192.168.1.120:554/live/ch0',
+    name: 'Local RTSP Stream',
+    description: 'Municipal CCTV IP Camera feed',
+    url: 'rtsp://admin:admin@192.168.1.100:554/live',
   },
 ];
 
@@ -39,35 +39,36 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
   onSourceChange,
 }) => {
   const [selectedType, setSelectedType] = useState<StreamSourceType>(activeSource.type);
-  const [customRtspUrl, setCustomRtspUrl] = useState<string>(
-    activeSource.type === 'rtsp' && activeSource.url ? activeSource.url : 'rtsp://admin:drrmo2026@192.168.1.50:554/h264'
-  );
+  const [customRtspUrl, setCustomRtspUrl] = useState<string>(activeSource.url || '');
   const [webcamIndex, setWebcamIndex] = useState<number>(activeSource.device_index ?? 0);
   const [isSwitching, setIsSwitching] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  const handleSelectPreset = async (source: StreamSource) => {
+  const handleSelectPreset = async (preset: StreamSource) => {
+    setSelectedType(preset.type);
     setIsSwitching(true);
     setStatusMessage(null);
-    setSelectedType(source.type);
 
     try {
-      await switchStream(cameraId, source);
-      onSourceChange(source);
-      setStatusMessage(`Switched ingestion to ${source.name}`);
+      await switchStream(cameraId, preset);
+
+      onSourceChange(preset);
+      setStatusMessage(`Switched to ${preset.name}`);
       setTimeout(() => setStatusMessage(null), 3000);
     } catch {
-      setStatusMessage(`Failed to switch to ${source.name}`);
+      setStatusMessage(`Failed connecting to ${preset.name}`);
     } finally {
       setIsSwitching(false);
     }
   };
 
   const handleApplyCustomRtsp = async () => {
-    if (!customRtspUrl.trim()) return;
+    if (!customRtspUrl) return;
     setIsSwitching(true);
-    const customSource: StreamSource = {
-      id: 'custom-rtsp',
+    setStatusMessage(null);
+
+    const updatedSource: StreamSource = {
+      id: 'rtsp-custom',
       type: 'rtsp',
       name: 'Custom RTSP Stream',
       description: customRtspUrl,
@@ -75,8 +76,9 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
     };
 
     try {
-      await switchStream(cameraId, customSource);
-      onSourceChange(customSource);
+      await switchStream(cameraId, updatedSource);
+
+      onSourceChange(updatedSource);
       setStatusMessage(`Active: ${customRtspUrl}`);
       setTimeout(() => setStatusMessage(null), 3000);
     } catch {
@@ -87,10 +89,10 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
   };
 
   return (
-    <div className="bg-[#0B1526]/80 border border-slate-800/80 rounded-2xl p-3 sm:p-4 shadow-md backdrop-blur-md">
+    <div className="bg-white dark:bg-[#0B1526]/80 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-3 sm:p-4 shadow-sm backdrop-blur-md transition-colors">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         {/* Source Switcher Segmented Tabs */}
-        <div className="flex items-center gap-1.5 bg-slate-950/60 p-1 rounded-xl border border-slate-800/70 overflow-x-auto">
+        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950/60 p-1 rounded-xl border border-slate-200 dark:border-slate-800/70 overflow-x-auto">
           {PRESET_SOURCES.map((source) => {
             const isActive =
               activeSource.type === source.type &&
@@ -107,10 +109,10 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
                 className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
                   isActive
                     ? 'bg-primary text-white shadow-sm font-semibold'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
                 }`}
               >
-                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-teal-300' : 'text-slate-400'}`} />
+                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-teal-300' : 'text-slate-500 dark:text-slate-400'}`} />
                 <span>{source.name}</span>
                 {isActive && (
                   <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
@@ -122,8 +124,8 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
 
         {/* Status Notification */}
         {statusMessage && (
-          <div className="flex items-center gap-1.5 text-xs text-teal-300 bg-teal-500/10 px-3 py-1 rounded-full border border-teal-500/20">
-            <Check className="w-3.5 h-3.5 text-teal-400" />
+          <div className="flex items-center gap-1.5 text-xs text-teal-800 dark:text-teal-300 bg-teal-50 dark:bg-teal-500/10 px-3 py-1 rounded-full border border-teal-200 dark:border-teal-500/20">
+            <Check className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
             <span>{statusMessage}</span>
           </div>
         )}
@@ -131,19 +133,19 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
 
       {/* Contextual Configuration Row for RTSP & Webcam */}
       {selectedType === 'rtsp' && (
-        <div className="mt-3 pt-3 border-t border-slate-800/60 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800/60 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <input
             type="text"
             value={customRtspUrl}
             onChange={(e) => setCustomRtspUrl(e.target.value)}
             placeholder="rtsp://admin:password@192.168.1.100:554/stream1"
-            className="flex-1 bg-slate-950/80 border border-slate-700/60 text-slate-200 rounded-xl px-3 py-1.5 text-xs focus:border-teal-500 focus:outline-none"
+            className="flex-1 bg-white dark:bg-slate-950/80 border border-slate-300 dark:border-slate-700/60 text-slate-800 dark:text-slate-200 rounded-xl px-3 py-1.5 text-xs focus:border-teal-500 focus:outline-none shadow-sm"
           />
           <button
             type="button"
             onClick={handleApplyCustomRtsp}
             disabled={isSwitching}
-            className="px-4 py-1.5 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            className="px-4 py-1.5 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm"
           >
             <Network className="w-3.5 h-3.5 text-teal-300" />
             <span>Connect RTSP</span>
@@ -152,8 +154,8 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
       )}
 
       {selectedType === 'webcam' && (
-        <div className="mt-3 pt-3 border-t border-slate-800/60 flex items-center gap-3 text-xs text-slate-400">
-          <span>USB Device Index:</span>
+        <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800/60 flex items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
+          <span className="font-medium">USB Device Index:</span>
           <select
             value={webcamIndex}
             onChange={(e) => {
@@ -167,7 +169,7 @@ export const StreamSelector: React.FC<StreamSelectorProps> = ({
                 device_index: idx,
               });
             }}
-            className="bg-slate-950/80 border border-slate-700/60 text-slate-200 rounded-lg px-2.5 py-1 text-xs"
+            className="bg-white dark:bg-slate-950/80 border border-slate-300 dark:border-slate-700/60 text-slate-800 dark:text-slate-200 rounded-lg px-2.5 py-1 text-xs shadow-sm cursor-pointer"
           >
             <option value={0}>Index 0 (Default Camera)</option>
             <option value={1}>Index 1 (Secondary USB)</option>

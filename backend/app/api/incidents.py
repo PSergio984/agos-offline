@@ -2,7 +2,7 @@ import uuid
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 import aiosqlite
 
 from app.core.database import get_db

@@ -32,3 +32,8 @@ frontend/.env
 # Local Analysis & Logs
 graphify-out/
 *.log
+
+# ML Pipeline Training Artifacts & Datasets
+ml_pipeline/dataset/
+ml_pipeline/runs/
+*.pt

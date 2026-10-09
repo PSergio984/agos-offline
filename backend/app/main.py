@@ -1,7 +1,6 @@
 import logging
 import asyncio
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -114,7 +113,6 @@ app.include_router(ws_router, prefix=settings.API_PREFIX)
 @app.post(f"{settings.API_PREFIX}/stream", tags=["Cameras"])
 async def stream_switch_fallback(payload: StreamSwitchRequest = None):
     """Direct alias for switching streams from root API prefix."""
-    from app.core.database import get_db
     import aiosqlite
     async with aiosqlite.connect(str(settings.DATABASE_PATH)) as db:
         return await switch_stream_source(payload=payload, db=db)

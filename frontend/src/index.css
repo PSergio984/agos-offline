@@ -4,7 +4,7 @@
 
 @layer base {
   body {
-    @apply bg-[#050B14] text-slate-100 font-sans antialiased;
+    @apply bg-[#F0F4F8] dark:bg-[#050B14] text-slate-800 dark:text-slate-100 font-sans antialiased;
     margin: 0;
     padding: 0;
     overflow-x: hidden;
@@ -16,11 +16,14 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #050B14;
+    background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #1E293B;
+    background: #CBD5E1;
     border-radius: 4px;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background: #1E293B;
   }
   ::-webkit-scrollbar-thumb:hover {
     background: #1ABC9C;
