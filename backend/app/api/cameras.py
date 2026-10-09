@@ -1,5 +1,5 @@
 import uuid
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field, field_validator
 import aiosqlite

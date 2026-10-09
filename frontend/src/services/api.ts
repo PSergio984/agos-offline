@@ -134,3 +134,68 @@ export async function fetchIncidents(): Promise<Incident[]> {
     },
   ];
 }
+
+export async function resolveIncident(incidentId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/incidents/${incidentId}/resolve`, {
+      method: 'POST',
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('[API] Could not resolve incident on backend:', err);
+    return false;
+  }
+}
+
+export async function fetchWeather(): Promise<{
+  is_online: boolean;
+  rainfall_mm: number;
+  temperature_c: number | null;
+  humidity_pct: number | null;
+  condition: string;
+  message: string;
+  cached?: boolean;
+}> {
+  try {
+    const res = await fetch(`${API_BASE}/weather`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[API] Weather endpoint unreachable:', err);
+  }
+  return {
+    is_online: false,
+    rainfall_mm: 0.0,
+    temperature_c: null,
+    humidity_pct: null,
+    condition: 'Offline Mode',
+    message: 'Offline (Weather unavailable)',
+    cached: false,
+  };
+}
+
+export async function fetchSyncStatus(): Promise<{
+  is_online: boolean;
+  status: string;
+  status_label: string;
+  pending_count: number;
+  synced_count: number;
+}> {
+  try {
+    const res = await fetch(`${API_BASE}/sync/status`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[API] Sync status unreachable:', err);
+  }
+  return {
+    is_online: false,
+    status: 'LOCAL_OFFLINE',
+    status_label: 'Local Offline Mode',
+    pending_count: 0,
+    synced_count: 0,
+  };
+}
+

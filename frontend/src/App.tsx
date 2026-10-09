@@ -11,7 +11,7 @@ import { AlarmBanner } from './components/AlarmBanner';
 import { RadioDispatchModal } from './components/RadioDispatchModal';
 import { StreamSelector } from './components/StreamSelector';
 import { IncidentHistory } from './components/IncidentHistory';
-import { loadROI } from './services/api';
+import { loadROI, fetchWeather, fetchSyncStatus } from './services/api';
 import { sirenSynthesizer } from './services/audioSiren';
 import {
   Sliders,
@@ -28,6 +28,8 @@ import {
   Layers,
   ChevronDown,
   Gauge,
+  CloudRain,
+  CloudOff,
 } from 'lucide-react';
 
 interface CameraOption {
@@ -118,6 +120,46 @@ export const App: React.FC = () => {
 
   // Audio Siren Master State
   const [isSirenMuted, setIsSirenMuted] = useState<boolean>(false);
+
+  // Weather & Cloud Sync State
+  const [weather, setWeather] = useState<{
+    is_online: boolean;
+    rainfall_mm: number;
+    condition: string;
+    message: string;
+    temperature_c: number | null;
+  }>({
+    is_online: false,
+    rainfall_mm: 0.0,
+    condition: 'Offline Mode',
+    message: 'Offline (Weather unavailable)',
+    temperature_c: null,
+  });
+
+  const [syncStatus, setSyncStatus] = useState<{
+    is_online: boolean;
+    status: string;
+    status_label: string;
+    pending_count: number;
+    synced_count: number;
+  }>({
+    is_online: false,
+    status: 'LOCAL_OFFLINE',
+    status_label: 'Local Offline Mode',
+    pending_count: 0,
+    synced_count: 0,
+  });
+
+  useEffect(() => {
+    const refreshAux = async () => {
+      const [w, s] = await Promise.all([fetchWeather(), fetchSyncStatus()]);
+      setWeather(w);
+      setSyncStatus(s);
+    };
+    refreshAux();
+    const interval = setInterval(refreshAux, 20000);
+    return () => clearInterval(interval);
+  }, []);
 
   // System Clock (Philippine Standard Time PST)
   const [currentTime, setCurrentTime] = useState<string>('');
@@ -221,10 +263,35 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Offline Air-Gapped Pill */}
-            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 border border-emerald-500/40 text-[11px] font-mono text-emerald-400">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>100% AIR-GAPPED • ZERO CLOUD EGRESS</span>
+            {/* Dynamic Connectivity Pill */}
+            <div
+              className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-mono transition-colors shadow-sm ${
+                syncStatus.is_online
+                  ? 'bg-slate-900 border-cyan-500/50 text-cyan-300'
+                  : 'bg-slate-900 border-emerald-500/40 text-emerald-400'
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full animate-pulse ${
+                  syncStatus.is_online ? 'bg-cyan-400' : 'bg-emerald-400'
+                }`}
+              />
+              <span>{syncStatus.status_label.toUpperCase()}</span>
+            </div>
+
+            {/* Offline-First Weather Widget */}
+            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/90 border border-slate-800 text-[11px] font-mono">
+              {weather.is_online ? (
+                <>
+                  <CloudRain className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="text-slate-300">{weather.message}</span>
+                </>
+              ) : (
+                <>
+                  <CloudOff className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="text-slate-400">{weather.message}</span>
+                </>
+              )}
             </div>
           </div>
 

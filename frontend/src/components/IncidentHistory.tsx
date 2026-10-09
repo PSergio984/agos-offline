@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Incident } from '../types';
-import { fetchIncidents } from '../services/api';
+import { fetchIncidents, resolveIncident } from '../services/api';
 import {
   History,
   RefreshCw,
@@ -10,6 +10,8 @@ import {
   AlertTriangle,
   Flame,
   X,
+  Camera,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface IncidentHistoryProps {
@@ -27,6 +29,8 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [inspectingIncident, setInspectingIncident] = useState<Incident | null>(null);
+  const [isResolving, setIsResolving] = useState<boolean>(false);
 
   const loadIncidents = async () => {
     setIsLoading(true);
@@ -35,6 +39,19 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
       setIncidents(data);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResolve = async (id: string) => {
+    setIsResolving(true);
+    try {
+      await resolveIncident(id);
+      await loadIncidents();
+      if (inspectingIncident && inspectingIncident.id === id) {
+        setInspectingIncident((prev) => (prev ? { ...prev, action_taken: 'RESOLVED' } : null));
+      }
+    } finally {
+      setIsResolving(false);
     }
   };
 
@@ -210,6 +227,17 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
                     </span>
                   )}
 
+                  {/* Inspect Snapshot Button */}
+                  <button
+                    type="button"
+                    onClick={() => setInspectingIncident(incident)}
+                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-mono flex items-center gap-1.5 transition-colors"
+                    title="Inspect Forensic Snapshot"
+                  >
+                    <Camera className="w-3 h-3 text-cyan-400" />
+                    <span className="hidden sm:inline">Inspect</span>
+                  </button>
+
                   {onSelectIncidentForRadio && (
                     <button
                       type="button"
@@ -233,6 +261,115 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
         <span>Total Incidents: {filteredIncidents.length}</span>
         <span className="text-cyan-400">Offline SQLite: storage/incidents/</span>
       </div>
+
+      {/* Forensic Snapshot & Inspection Modal */}
+      {inspectingIncident && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-cyan-500/40 rounded-2xl max-w-lg w-full p-5 shadow-2xl flex flex-col gap-4 text-slate-100">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Camera className="w-5 h-5 text-cyan-400" />
+                <h3 className="font-bold text-sm text-white">Incident Forensic Snapshot</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectingIncident(null)}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Snapshot Image Preview */}
+            <div className="relative rounded-lg overflow-hidden border border-slate-800 bg-slate-950 aspect-video flex items-center justify-center">
+              {inspectingIncident.snapshot_url ? (
+                <img
+                  src={inspectingIncident.snapshot_url}
+                  alt="Obstruction Snapshot"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = 'none';
+                  }}
+                />
+              ) : (
+                <div className="text-center p-6 text-slate-500 text-xs font-mono">
+                  <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto mb-2 opacity-60" />
+                  <span>Captured in SQLite (`storage/incidents/`)</span>
+                </div>
+              )}
+            </div>
+
+            {/* Forensic Details */}
+            <div className="space-y-2 text-xs font-mono bg-slate-950/60 p-3 rounded-lg border border-slate-800">
+              <div className="flex justify-between">
+                <span className="text-slate-400">INCIDENT ID:</span>
+                <span className="text-white font-bold">{inspectingIncident.id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">CAMERA / LOCATION:</span>
+                <span className="text-cyan-300 font-bold">{inspectingIncident.camera_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">OCCLUSION RATIO:</span>
+                <span className="text-rose-400 font-bold">
+                  {inspectingIncident.occlusion_ratio.toFixed(1)}% ({inspectingIncident.status})
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">TIMESTAMP:</span>
+                <span className="text-slate-300">{inspectingIncident.timestamp}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">ACTION STATUS:</span>
+                <span
+                  className={`font-bold ${
+                    inspectingIncident.action_taken === 'RESOLVED'
+                      ? 'text-emerald-400'
+                      : 'text-amber-400'
+                  }`}
+                >
+                  {inspectingIncident.action_taken || 'PENDING'}
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-2 pt-2">
+              {inspectingIncident.action_taken !== 'RESOLVED' && (
+                <button
+                  type="button"
+                  disabled={isResolving}
+                  onClick={() => handleResolve(inspectingIncident.id)}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold flex items-center gap-1.5 transition-colors"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isResolving ? 'Resolving...' : 'Mark as Resolved'}</span>
+                </button>
+              )}
+              {onSelectIncidentForRadio && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectIncidentForRadio(inspectingIncident);
+                    setInspectingIncident(null);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-mono text-xs font-bold flex items-center gap-1.5 transition-colors"
+                >
+                  <Radio className="w-4 h-4" />
+                  <span>Radio Dispatch</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setInspectingIncident(null)}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 

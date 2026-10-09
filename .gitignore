@@ -28,3 +28,7 @@ frontend/dist/
 .env
 backend/.env
 frontend/.env
+
+# Local Analysis & Logs
+graphify-out/
+*.log

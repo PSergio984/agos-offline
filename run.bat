@@ -12,14 +12,19 @@ set "BACKEND_DIR=%SCRIPT_DIR%backend"
 set "FRONTEND_DIR=%SCRIPT_DIR%frontend"
 set "PYTHON_EXE=%BACKEND_DIR%\venv\Scripts\python.exe"
 
-if not exist "%PYTHON_EXE%" (
-    echo [1/4] Creating Python virtual environment...
-    python -m venv "%BACKEND_DIR%\venv"
-    "%BACKEND_DIR%\venv\Scripts\pip.exe" install --upgrade pip
-    echo [1/4] Installing backend dependencies...
-    "%BACKEND_DIR%\venv\Scripts\pip.exe" install -r "%BACKEND_DIR%\requirements.txt"
+if exist "%PYTHON_EXE%" (
+    set "RUN_PYTHON=%PYTHON_EXE%"
+    echo [1/4] Using Python venv.
 ) else (
-    echo [1/4] Python virtual environment ready.
+    where python >nul 2>&1
+    if !errorlevel! equ 0 (
+        set "RUN_PYTHON=python"
+        echo [1/4] Using system Python environment.
+    ) else (
+        echo [1/4] Python not found! Please install Python 3.10+
+        pause
+        exit /b 1
+    )
 )
 
 if not exist "%FRONTEND_DIR%\node_modules" (
@@ -32,7 +37,7 @@ if not exist "%FRONTEND_DIR%\node_modules" (
 )
 
 echo [3/4] Starting AGOS-Offline Backend (FastAPI on http://localhost:8000)...
-start "AGOS Backend" "%PYTHON_EXE%" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+start "AGOS Backend" "%RUN_PYTHON%" -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 timeout /t 2 /nobreak >nul
 

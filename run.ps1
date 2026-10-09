@@ -11,14 +11,12 @@ $BackendDir = Join-Path $ScriptDir "backend"
 $VenvDir = Join-Path $BackendDir "venv"
 $PythonExe = Join-Path $VenvDir "Scripts\python.exe"
 
-if (-not (Test-Path $PythonExe)) {
-    Write-Host "[1/4] Creating Python virtual environment..." -ForegroundColor Yellow
-    python -m venv $VenvDir
-    & $PythonExe -m pip install --upgrade pip
-    Write-Host "[1/4] Installing backend dependencies..." -ForegroundColor Yellow
-    & $PythonExe -m pip install -r (Join-Path $BackendDir "requirements.txt")
+if (Test-Path $PythonExe) {
+    $RunPython = $PythonExe
+    Write-Host "[1/4] Using Python venv." -ForegroundColor Green
 } else {
-    Write-Host "[1/4] Python virtual environment ready." -ForegroundColor Green
+    $RunPython = "python"
+    Write-Host "[1/4] Using system Python environment." -ForegroundColor Green
 }
 
 # 2. Setup Frontend Node Modules
@@ -34,7 +32,7 @@ if (-not (Test-Path (Join-Path $FrontendDir "node_modules"))) {
 
 # 3. Start Backend Server
 Write-Host "[3/4] Starting AGOS-Offline Backend (FastAPI on http://localhost:8000)..." -ForegroundColor Cyan
-$BackendJob = Start-Process -FilePath $PythonExe -ArgumentList "-m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload" -WorkingDirectory $BackendDir -PassThru
+$BackendJob = Start-Process -FilePath $RunPython -ArgumentList "-m uvicorn app.main:app --host 0.0.0.0 --port 8000" -WorkingDirectory $BackendDir -PassThru
 
 Start-Sleep -Seconds 2
 

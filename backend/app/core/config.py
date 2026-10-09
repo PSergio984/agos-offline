@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     PORT: int = 8000
     CORS_ORIGINS: List[str] = ["*"]
 
+    # Supabase Store-and-Forward Cloud Sync (Optional)
+    SUPABASE_URL: str = ""
+    SUPABASE_KEY: str = ""
+    SYNC_INTERVAL_SECONDS: float = 30.0
+
     model_config = {"extra": "ignore"}
 
 settings = Settings()

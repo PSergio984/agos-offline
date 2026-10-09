@@ -11,8 +11,11 @@ import uvicorn
 from app.core.config import settings
 from app.core.database import init_db, get_active_camera_record
 from app.services.stream_service import stream_service
-from app.api.cameras import router as cameras_router
+from app.services.sync_service import sync_worker_loop
+from app.api.cameras import router as cameras_router, switch_stream_source, StreamSwitchRequest
 from app.api.incidents import router as incidents_router
+from app.api.weather import router as weather_router
+from app.api.sync import router as sync_router
 from app.api.ws import router as ws_router, broadcast_loop
 
 # Setup logging
@@ -28,7 +31,7 @@ async def lifespan(app: FastAPI):
     """
     Application lifecycle management.
     Initializes embedded SQLite database, starts video ingestion stream,
-    and runs the background WebSocket broadcaster.
+    runs background WebSocket broadcaster, and store-and-forward sync worker.
     """
     logger.info(f"Starting {settings.PROJECT_NAME} v{settings.VERSION}...")
 
@@ -57,14 +60,19 @@ async def lifespan(app: FastAPI):
     broadcast_task = asyncio.create_task(broadcast_loop())
     logger.info("WebSocket broadcaster task started.")
 
+    # 4. Start background store-and-forward cloud sync worker loop
+    sync_task = asyncio.create_task(sync_worker_loop())
+    logger.info("Store-and-forward sync worker task started.")
+
     yield
 
     # Shutdown sequence
-    logger.info("Shutting down stream ingestion and WebSocket broadcaster...")
+    logger.info("Shutting down stream ingestion, WebSocket broadcaster, and sync worker...")
     broadcast_task.cancel()
+    sync_task.cancel()
     try:
-        await broadcast_task
-    except asyncio.CancelledError:
+        await asyncio.gather(broadcast_task, sync_task, return_exceptions=True)
+    except Exception:
         pass
 
     stream_service.stop()
@@ -97,8 +105,19 @@ app.mount(
 # API Routers
 app.include_router(cameras_router, prefix=f"{settings.API_PREFIX}/cameras", tags=["Cameras"])
 app.include_router(incidents_router, prefix=f"{settings.API_PREFIX}/incidents", tags=["Incidents"])
+app.include_router(weather_router, prefix=f"{settings.API_PREFIX}/weather", tags=["Weather"])
+app.include_router(sync_router, prefix=f"{settings.API_PREFIX}/sync", tags=["Sync"])
 app.include_router(ws_router)
 app.include_router(ws_router, prefix=settings.API_PREFIX)
+
+
+@app.post(f"{settings.API_PREFIX}/stream", tags=["Cameras"])
+async def stream_switch_fallback(payload: StreamSwitchRequest = None):
+    """Direct alias for switching streams from root API prefix."""
+    from app.core.database import get_db
+    import aiosqlite
+    async with aiosqlite.connect(str(settings.DATABASE_PATH)) as db:
+        return await switch_stream_source(payload=payload, db=db)
 
 
 @app.get("/", tags=["Health"])
