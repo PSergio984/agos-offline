@@ -131,6 +131,183 @@ def test_websocket_stream(client: TestClient):
         assert pong is not None, "Failed to receive pong from WebSocket"
         assert pong["type"] == "pong"
 
+
+def test_responders_and_groups_crud(client: TestClient):
+    """Test full CRUD lifecycle for emergency responders and responder groups."""
+    # 1. Verify default seeded groups exist
+    groups_res = client.get("/api/v1/responder-groups")
+    assert groups_res.status_code == 200
+    groups = groups_res.json()
+    assert len(groups) >= 3
+    group_names = [g["name"] for g in groups]
+    assert "Barangay Poblacion QRT" in group_names
+    assert "Drainage Maintenance Unit" in group_names
+    assert "Evacuation Coordination Unit" in group_names
+
+    # 2. Verify default seeded responders exist and have preferences & group IDs
+    resp_res = client.get("/api/v1/responders")
+    assert resp_res.status_code == 200
+    responders = resp_res.json()
+    assert len(responders) >= 4
+    juan = next(r for r in responders if r["first_name"] == "Juan")
+    assert juan["status"] == "active"
+    assert juan["notif_preferences"]["warning"] is True
+    assert len(juan["group_ids"]) >= 1
+
+    # 3. Create a new responder group
+    new_group_payload = {
+        "name": "Rapid Culvert Inspection Team",
+        "description": "Mobile motorcycle scout unit for rapid culvert inspection.",
+    }
+    create_grp_res = client.post("/api/v1/responder-groups", json=new_group_payload)
+    assert create_grp_res.status_code == 201
+    created_group = create_grp_res.json()
+    grp_id = created_group["id"]
+    assert created_group["name"] == new_group_payload["name"]
+    assert created_group["member_count"] == 0
+
+    # 4. Create a new responder assigned to the new group
+    new_resp_payload = {
+        "first_name": "Mateo",
+        "last_name": "Cruz",
+        "phone_number": "+639991234567",
+        "status": "active",
+        "location": "Sector 4 Outpost",
+        "notif_preferences": {
+            "warning": True,
+            "critical": True,
+            "blockage": True,
+            "announcement": False,
+        },
+        "group_ids": [grp_id],
+    }
+    create_resp_res = client.post("/api/v1/responders", json=new_resp_payload)
+    assert create_resp_res.status_code == 201
+    created_resp = create_resp_res.json()
+    resp_id = created_resp["id"]
+    assert created_resp["first_name"] == "Mateo"
+    assert created_resp["notif_preferences"]["announcement"] is False
+    assert created_resp["group_ids"] == [grp_id]
+
+    # Verify group member count increased
+    grp_check = client.get("/api/v1/responder-groups").json()
+    target_grp = next(g for g in grp_check if g["id"] == grp_id)
+    assert target_grp["member_count"] == 1
+
+    # 5. Update responder details
+    update_resp_res = client.put(
+        f"/api/v1/responders/{resp_id}",
+        json={
+            "location": "Central EOC Headquarters",
+            "notif_preferences": {
+                "warning": False,
+                "critical": True,
+                "blockage": True,
+                "announcement": True,
+            },
+        },
+    )
+    assert update_resp_res.status_code == 200
+    updated_resp = update_resp_res.json()
+    assert updated_resp["location"] == "Central EOC Headquarters"
+    assert updated_resp["notif_preferences"]["warning"] is False
+
+    # 6. Update group details
+    update_grp_res = client.put(
+        f"/api/v1/responder-groups/{grp_id}",
+        json={"name": "Renamed Rapid Unit", "description": "Updated description"},
+    )
+    assert update_grp_res.status_code == 200
+    assert update_grp_res.json()["name"] == "Renamed Rapid Unit"
+
+    # 7. Delete responder
+    del_resp_res = client.delete(f"/api/v1/responders/{resp_id}")
+    assert del_resp_res.status_code == 200
+    assert del_resp_res.json()["status"] == "success"
+
+    # Verify deletion
+    resp_list = client.get("/api/v1/responders").json()
+    assert not any(r["id"] == resp_id for r in resp_list)
+
+    # 8. Delete group
+    del_grp_res = client.delete(f"/api/v1/responder-groups/{grp_id}")
+    assert del_grp_res.status_code == 200
+    grp_list = client.get("/api/v1/responder-groups").json()
+    assert not any(g["id"] == grp_id for g in grp_list)
+
+
+def test_notification_templates_and_announcement_dispatch(client: TestClient):
+    """Test notification templates CRUD and announcement broadcast dispatch."""
+    # 1. Verify default seeded templates exist
+    tmpl_res = client.get("/api/v1/notification-templates")
+    assert tmpl_res.status_code == 200
+    templates = tmpl_res.json()
+    assert len(templates) >= 4
+    tmpl_types = [t["type"] for t in templates]
+    assert "blockage" in tmpl_types
+    assert "warning" in tmpl_types
+    assert "critical" in tmpl_types
+    assert "announcement" in tmpl_types
+
+    # 2. Create custom template
+    create_tmpl_res = client.post(
+        "/api/v1/notification-templates",
+        json={
+            "type": "custom",
+            "title": "Severe Weather Sluice Check",
+            "message": "ATTENTION: Flash flood crest anticipated at {location}. Clear sluice gates.",
+        },
+    )
+    assert create_tmpl_res.status_code == 201
+    tmpl_data = create_tmpl_res.json()
+    tmpl_id = tmpl_data["id"]
+    assert tmpl_data["title"] == "Severe Weather Sluice Check"
+
+    # 3. Update template
+    update_tmpl_res = client.put(
+        f"/api/v1/notification-templates/{tmpl_id}",
+        json={"title": "Updated Sluice Gate Check"},
+    )
+    assert update_tmpl_res.status_code == 200
+    assert update_tmpl_res.json()["title"] == "Updated Sluice Gate Check"
+
+    # 4. Dispatch announcement targeting all active responders
+    announce_payload = {
+        "type": "announcement",
+        "title": "City-Wide Pre-Emptive Drainage Clearing",
+        "message": "All units initiate pre-emptive trash removal at assigned culverts.",
+    }
+    announce_res = client.post("/api/v1/notifications/announce", json=announce_payload)
+    assert announce_res.status_code == 201
+    dispatch = announce_res.json()
+    disp_id = dispatch["id"]
+    assert dispatch["title"] == announce_payload["title"]
+    assert dispatch["status"] == "DISPATCHED"
+    assert dispatch["recipient_count"] >= 4
+
+    # 5. Verify dispatch appears in notification logs
+    logs_res = client.get("/api/v1/notification-logs")
+    assert logs_res.status_code == 200
+    logs = logs_res.json()
+    assert any(log["id"] == disp_id for log in logs)
+
+    # 6. Verify entry was queued in sync_queue for cloud store-and-forward
+    conn = _db()
+    try:
+        queue_row = conn.execute(
+            "SELECT entity_type, entity_id, status FROM sync_queue WHERE entity_id = ?",
+            (disp_id,),
+        ).fetchone()
+        assert queue_row is not None
+        assert queue_row["entity_type"] == "NOTIFICATION_DISPATCH"
+        assert queue_row["status"] == "PENDING"
+    finally:
+        conn.close()
+
+    # 7. Delete custom template
+    del_tmpl_res = client.delete(f"/api/v1/notification-templates/{tmpl_id}")
+    assert del_tmpl_res.status_code == 200
+
 # --- Sync correctness and migration --------------------------------------------------
 
 

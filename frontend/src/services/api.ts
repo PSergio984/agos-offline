@@ -1,4 +1,15 @@
-import { Incident, ModelStatus, RainHazard, ROI, StreamSource } from '../types';
+import {
+  Incident,
+  ModelStatus,
+  RainHazard,
+  ROI,
+  StreamSource,
+  Responder,
+  ResponderGroup,
+  NotificationTemplate,
+  AnnouncementPayload,
+  NotificationLog,
+} from '../types';
 
 const API_BASE = '/api/v1';
 
@@ -239,4 +250,432 @@ export async function setHazardOverride(active: boolean | null): Promise<RainHaz
     console.warn('[API] Could not set hazard override:', err);
   }
   return null;
+}
+
+// -------------------------------------------------------------
+// Responders, Groups & Notifications (Offline-first fallback)
+// -------------------------------------------------------------
+
+const DEFAULT_RESPONDER_GROUPS: ResponderGroup[] = [
+  {
+    id: 'grp-poblacion',
+    name: 'Barangay Poblacion QRT',
+    description: 'Primary emergency quick response team for Poblacion district.',
+    member_count: 2,
+    member_ids: ['resp-01', 'resp-03'],
+  },
+  {
+    id: 'grp-drainage',
+    name: 'Drainage Maintenance Unit',
+    description: 'Engineering crew specialized in culvert clearing and desilting.',
+    member_count: 2,
+    member_ids: ['resp-02', 'resp-03'],
+  },
+  {
+    id: 'grp-evacuation',
+    name: 'Evacuation Coordination Unit',
+    description: 'Operations team managing evacuation transit and community alerts.',
+    member_count: 1,
+    member_ids: ['resp-04'],
+  },
+];
+
+const DEFAULT_RESPONDERS: Responder[] = [
+  {
+    id: 'resp-01',
+    first_name: 'Juan',
+    last_name: 'Dela Cruz',
+    phone_number: '+639171234567',
+    status: 'active',
+    location: 'Barangay Poblacion Outpost',
+    notif_preferences: { warning: true, critical: true, blockage: true, announcement: true },
+    group_ids: ['grp-poblacion'],
+  },
+  {
+    id: 'resp-02',
+    first_name: 'Maria',
+    last_name: 'Santos',
+    phone_number: '+639182345678',
+    status: 'active',
+    location: 'Engineering Field Office',
+    notif_preferences: { warning: true, critical: true, blockage: true, announcement: true },
+    group_ids: ['grp-drainage'],
+  },
+  {
+    id: 'resp-03',
+    first_name: 'Antonio',
+    last_name: 'Reyes',
+    phone_number: '+639193456789',
+    status: 'active',
+    location: 'DRRMO Central Substation',
+    notif_preferences: { warning: true, critical: true, blockage: true, announcement: true },
+    group_ids: ['grp-poblacion', 'grp-drainage'],
+  },
+  {
+    id: 'resp-04',
+    first_name: 'Elena',
+    last_name: 'Bautista',
+    phone_number: '+639204567890',
+    status: 'active',
+    location: 'Evacuation Center Sector 3',
+    notif_preferences: { warning: true, critical: true, blockage: true, announcement: true },
+    group_ids: ['grp-evacuation'],
+  },
+];
+
+const DEFAULT_TEMPLATES: NotificationTemplate[] = [
+  {
+    id: 'tmpl-blockage',
+    type: 'blockage',
+    title: 'Curb Grate Blockage Alert',
+    message: 'URGENT: Culvert grate blockage detected at {location}. Surface coverage: {occlusion_ratio}%. Immediate clearance required.',
+  },
+  {
+    id: 'tmpl-warning',
+    type: 'warning',
+    title: 'Rising Water Inflow Warning',
+    message: 'ADVISORY: Heavy inflow approaching {location} at {time}. Monitor drainage channels.',
+  },
+  {
+    id: 'tmpl-critical',
+    type: 'critical',
+    title: 'Critical Overflow Risk',
+    message: 'CRITICAL: Severe obstruction at {location}. Flood threshold reached. Deploy response team immediately.',
+  },
+  {
+    id: 'tmpl-announcement',
+    type: 'announcement',
+    title: 'General DRRMO Advisory',
+    message: 'COMMUNITY ADVISORY: Drainage maintenance scheduled for {location} on {time}. Keep grates clear.',
+  },
+];
+
+const DEFAULT_LOGS: NotificationLog[] = [
+  {
+    id: 'log-01',
+    type: 'blockage',
+    title: 'Curb Grate Blockage Alert',
+    message: 'URGENT: Culvert grate blockage detected at Brgy. San Jose, Rizal Ave cor. Mabini St.. Surface coverage: 78.4%. Immediate clearance required.',
+    target_group_id: 'grp-poblacion',
+    target_group_name: 'Barangay Poblacion QRT',
+    recipient_count: 2,
+    status: 'DISPATCHED',
+    created_at: '2026-10-09 14:50:11',
+  },
+  {
+    id: 'log-02',
+    type: 'warning',
+    title: 'Rising Water Inflow Warning',
+    message: 'ADVISORY: Heavy inflow approaching Brgy. Taft Central at 13:25:00. Monitor drainage channels.',
+    target_group_id: 'grp-drainage',
+    target_group_name: 'Drainage Maintenance Unit',
+    recipient_count: 2,
+    status: 'DISPATCHED',
+    created_at: '2026-10-09 13:25:00',
+  },
+];
+
+function getStoredOr<T>(key: string, fallback: T[]): T[] {
+  if (typeof localStorage === 'undefined') return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
+
+function setStored<T>(key: string, data: T[]): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch {
+    // ignore
+  }
+}
+
+export async function fetchResponders(): Promise<Responder[]> {
+  try {
+    const res = await fetch(`${API_BASE}/responders`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data.responders)) return data.responders;
+    }
+  } catch (err) {
+    console.warn('[API] Could not fetch responders from backend, using offline cache:', err);
+  }
+  return getStoredOr('agos_responders', DEFAULT_RESPONDERS);
+}
+
+export async function createResponder(payload: Partial<Responder>): Promise<Responder> {
+  try {
+    const res = await fetch(`${API_BASE}/responders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[API] Could not save responder on backend, persisting locally:', err);
+  }
+
+  const items = getStoredOr('agos_responders', DEFAULT_RESPONDERS);
+  const newResp: Responder = {
+    id: `resp-${Date.now().toString(36)}`,
+    first_name: payload.first_name || '',
+    last_name: payload.last_name || '',
+    phone_number: payload.phone_number || '',
+    status: payload.status || 'active',
+    location: payload.location || '',
+    notif_preferences: payload.notif_preferences || { warning: true, critical: true, blockage: true, announcement: true },
+    group_ids: payload.group_ids || [],
+    created_at: new Date().toISOString(),
+  };
+  const updated = [newResp, ...items];
+  setStored('agos_responders', updated);
+  return newResp;
+}
+
+export async function updateResponder(id: string, payload: Partial<Responder>): Promise<Responder> {
+  try {
+    const res = await fetch(`${API_BASE}/responders/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[API] Could not update responder on backend, saving locally:', err);
+  }
+
+  const items = getStoredOr('agos_responders', DEFAULT_RESPONDERS);
+  const updated = items.map((r) => (r.id === id ? { ...r, ...payload } : r));
+  setStored('agos_responders', updated);
+  const found = updated.find((r) => r.id === id);
+  return found || (payload as Responder);
+}
+
+export async function deleteResponder(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/responders/${id}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) return true;
+  } catch (err) {
+    console.warn('[API] Could not delete responder on backend, updating locally:', err);
+  }
+
+  const items = getStoredOr('agos_responders', DEFAULT_RESPONDERS);
+  setStored('agos_responders', items.filter((r) => r.id !== id));
+  return true;
+}
+
+export async function fetchResponderGroups(): Promise<ResponderGroup[]> {
+  try {
+    const res = await fetch(`${API_BASE}/responder-groups`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data.groups)) return data.groups;
+    }
+  } catch (err) {
+    console.warn('[API] Could not fetch responder groups from backend, using offline cache:', err);
+  }
+  return getStoredOr('agos_responder_groups', DEFAULT_RESPONDER_GROUPS);
+}
+
+export async function createResponderGroup(payload: Partial<ResponderGroup>): Promise<ResponderGroup> {
+  try {
+    const res = await fetch(`${API_BASE}/responder-groups`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[API] Could not create responder group on backend, saving locally:', err);
+  }
+
+  const items = getStoredOr('agos_responder_groups', DEFAULT_RESPONDER_GROUPS);
+  const newGroup: ResponderGroup = {
+    id: `grp-${Date.now().toString(36)}`,
+    name: payload.name || 'New Responder Group',
+    description: payload.description || '',
+    member_count: payload.member_ids?.length || 0,
+    member_ids: payload.member_ids || [],
+    created_at: new Date().toISOString(),
+  };
+  setStored('agos_responder_groups', [...items, newGroup]);
+  return newGroup;
+}
+
+export async function updateResponderGroup(id: string, payload: Partial<ResponderGroup>): Promise<ResponderGroup> {
+  try {
+    const res = await fetch(`${API_BASE}/responder-groups/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[API] Could not update responder group on backend, saving locally:', err);
+  }
+
+  const items = getStoredOr('agos_responder_groups', DEFAULT_RESPONDER_GROUPS);
+  const updated = items.map((g) => (g.id === id ? { ...g, ...payload } : g));
+  setStored('agos_responder_groups', updated);
+  return updated.find((g) => g.id === id) || (payload as ResponderGroup);
+}
+
+export async function deleteResponderGroup(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/responder-groups/${id}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) return true;
+  } catch (err) {
+    console.warn('[API] Could not delete responder group on backend, updating locally:', err);
+  }
+
+  const items = getStoredOr('agos_responder_groups', DEFAULT_RESPONDER_GROUPS);
+  setStored('agos_responder_groups', items.filter((g) => g.id !== id));
+  return true;
+}
+
+export async function fetchNotificationTemplates(): Promise<NotificationTemplate[]> {
+  try {
+    const res = await fetch(`${API_BASE}/notification-templates`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data.templates)) return data.templates;
+    }
+  } catch (err) {
+    console.warn('[API] Could not fetch templates from backend, using offline cache:', err);
+  }
+  return getStoredOr('agos_notification_templates', DEFAULT_TEMPLATES);
+}
+
+export async function createNotificationTemplate(payload: Partial<NotificationTemplate>): Promise<NotificationTemplate> {
+  try {
+    const res = await fetch(`${API_BASE}/notification-templates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[API] Could not create template on backend, saving locally:', err);
+  }
+
+  const items = getStoredOr('agos_notification_templates', DEFAULT_TEMPLATES);
+  const newTmpl: NotificationTemplate = {
+    id: `tmpl-${Date.now().toString(36)}`,
+    type: payload.type || 'announcement',
+    title: payload.title || 'Untitled Advisory',
+    message: payload.message || '',
+    created_at: new Date().toISOString(),
+  };
+  setStored('agos_notification_templates', [...items, newTmpl]);
+  return newTmpl;
+}
+
+export async function updateNotificationTemplate(id: string, payload: Partial<NotificationTemplate>): Promise<NotificationTemplate> {
+  try {
+    const res = await fetch(`${API_BASE}/notification-templates/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[API] Could not update template on backend, saving locally:', err);
+  }
+
+  const items = getStoredOr('agos_notification_templates', DEFAULT_TEMPLATES);
+  const updated = items.map((t) => (t.id === id ? { ...t, ...payload } : t));
+  setStored('agos_notification_templates', updated);
+  return updated.find((t) => t.id === id) || (payload as NotificationTemplate);
+}
+
+export async function deleteNotificationTemplate(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/notification-templates/${id}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) return true;
+  } catch (err) {
+    console.warn('[API] Could not delete template on backend, updating locally:', err);
+  }
+
+  const items = getStoredOr('agos_notification_templates', DEFAULT_TEMPLATES);
+  setStored('agos_notification_templates', items.filter((t) => t.id !== id));
+  return true;
+}
+
+export async function sendAnnouncement(
+  payload: AnnouncementPayload
+): Promise<{ success: boolean; dispatch_id?: string; recipient_count?: number }> {
+  try {
+    const res = await fetch(`${API_BASE}/notifications/announce`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[API] Could not send announcement to backend, recording locally:', err);
+  }
+
+  // Local dispatch recording
+  const groups = getStoredOr<ResponderGroup>('agos_responder_groups', DEFAULT_RESPONDER_GROUPS);
+  const targetGroup = groups.find((g) => g.id === payload.target_group_id);
+  const recipientCount = targetGroup?.member_count ?? 4;
+  const dispatchId = `disp-${Date.now().toString(36)}`;
+
+  const logs = getStoredOr<NotificationLog>('agos_notification_logs', DEFAULT_LOGS);
+  const newLog: NotificationLog = {
+    id: dispatchId,
+    type: payload.type || 'announcement',
+    title: payload.title,
+    message: payload.message,
+    target_group_id: payload.target_group_id,
+    target_group_name: targetGroup?.name || 'All Registered Responders',
+    recipient_count: recipientCount,
+    status: 'DISPATCHED',
+    created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+  };
+  setStored('agos_notification_logs', [newLog, ...logs]);
+
+  return { success: true, dispatch_id: dispatchId, recipient_count: recipientCount };
+}
+
+export async function fetchNotificationLogs(): Promise<NotificationLog[]> {
+  try {
+    const res = await fetch(`${API_BASE}/notification-logs`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data.logs)) return data.logs;
+    }
+  } catch (err) {
+    console.warn('[API] Could not fetch notification logs from backend, using offline cache:', err);
+  }
+  return getStoredOr('agos_notification_logs', DEFAULT_LOGS);
 }

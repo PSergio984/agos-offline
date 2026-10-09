@@ -17,11 +17,11 @@ function applyThemeClass(isDark: boolean): void {
 
 export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [mode, setModeState] = useState<ThemeMode>(() => {
-    if (typeof window === 'undefined') return 'system';
+    if (typeof window === 'undefined') return 'dark';
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored === 'light' || stored === 'dark' || stored === 'system'
       ? stored
-      : 'system';
+      : 'dark';
   });
 
   const isDark =

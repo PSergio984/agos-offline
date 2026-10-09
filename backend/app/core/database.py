@@ -57,6 +57,61 @@ CREATE TABLE IF NOT EXISTS sync_queue (
 );
 """
 
+SQL_CREATE_RESPONDERS = """
+CREATE TABLE IF NOT EXISTS responders (
+    id TEXT PRIMARY KEY,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    phone_number TEXT UNIQUE NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    location TEXT DEFAULT '',
+    notif_preferences TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+"""
+
+SQL_CREATE_RESPONDER_GROUPS = """
+CREATE TABLE IF NOT EXISTS responder_groups (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+"""
+
+SQL_CREATE_RESPONDER_GROUP_MEMBERS = """
+CREATE TABLE IF NOT EXISTS responder_group_members (
+    responder_id TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    PRIMARY KEY (responder_id, group_id),
+    FOREIGN KEY (responder_id) REFERENCES responders(id) ON DELETE CASCADE,
+    FOREIGN KEY (group_id) REFERENCES responder_groups(id) ON DELETE CASCADE
+);
+"""
+
+SQL_CREATE_NOTIFICATION_TEMPLATES = """
+CREATE TABLE IF NOT EXISTS notification_templates (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+"""
+
+SQL_CREATE_NOTIFICATION_DISPATCHES = """
+CREATE TABLE IF NOT EXISTS notification_dispatches (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    target_group_id TEXT,
+    recipient_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'DISPATCHED',
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+"""
+
 
 # Columns added after the first release. Applied additively to fresh and legacy databases alike.
 INCIDENT_EXTRA_COLUMNS = {
@@ -163,6 +218,11 @@ async def init_db() -> None:
         await db.execute(SQL_CREATE_INCIDENTS)
         await db.execute(SQL_CREATE_SYNC_QUEUE)
         await db.execute(SQL_CREATE_WEATHER_READINGS)
+        await db.execute(SQL_CREATE_RESPONDERS)
+        await db.execute(SQL_CREATE_RESPONDER_GROUPS)
+        await db.execute(SQL_CREATE_RESPONDER_GROUP_MEMBERS)
+        await db.execute(SQL_CREATE_NOTIFICATION_TEMPLATES)
+        await db.execute(SQL_CREATE_NOTIFICATION_DISPATCHES)
 
         added = await _ensure_columns(db, "incidents", INCIDENT_EXTRA_COLUMNS)
         if "cloud_synced" in added:
@@ -178,6 +238,95 @@ async def init_db() -> None:
             )
         await db.execute(SQL_CREATE_OPEN_INCIDENT_INDEX)
         await db.commit()
+
+        # Seed default responder groups if empty
+        cursor = await db.execute("SELECT COUNT(*) FROM responder_groups")
+        group_count = (await cursor.fetchone())[0]
+        if group_count == 0:
+            default_groups = [
+                ("grp-poblacion", "Barangay Poblacion QRT", "Primary emergency quick response team for Poblacion district."),
+                ("grp-drainage", "Drainage Maintenance Unit", "Engineering crew specialized in culvert clearing and desilting."),
+                ("grp-evacuation", "Evacuation Coordination Unit", "Operations team managing evacuation transit and community alerts."),
+            ]
+            for gid, name, desc in default_groups:
+                await db.execute(
+                    "INSERT INTO responder_groups (id, name, description) VALUES (?, ?, ?)",
+                    (gid, name, desc),
+                )
+            await db.commit()
+
+        # Seed default responders if empty
+        cursor = await db.execute("SELECT COUNT(*) FROM responders")
+        responder_count = (await cursor.fetchone())[0]
+        if responder_count == 0:
+            import json
+            default_prefs = json.dumps({"warning": True, "critical": True, "blockage": True, "announcement": True})
+            default_responders = [
+                ("resp-01", "Juan", "Dela Cruz", "+639171234567", "active", "Barangay Poblacion Outpost", default_prefs),
+                ("resp-02", "Maria", "Santos", "+639182345678", "active", "Engineering Field Office", default_prefs),
+                ("resp-03", "Antonio", "Reyes", "+639193456789", "active", "DRRMO Central Substation", default_prefs),
+                ("resp-04", "Elena", "Bautista", "+639204567890", "active", "Evacuation Center Sector 3", default_prefs),
+            ]
+            for rid, fname, lname, phone, status_val, loc, prefs in default_responders:
+                await db.execute(
+                    """
+                    INSERT INTO responders (id, first_name, last_name, phone_number, status, location, notif_preferences)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (rid, fname, lname, phone, status_val, loc, prefs),
+                )
+
+            # Assign responders to default groups
+            default_memberships = [
+                ("resp-01", "grp-poblacion"),
+                ("resp-02", "grp-drainage"),
+                ("resp-03", "grp-poblacion"),
+                ("resp-03", "grp-drainage"),
+                ("resp-04", "grp-evacuation"),
+            ]
+            for rid, gid in default_memberships:
+                await db.execute(
+                    "INSERT INTO responder_group_members (responder_id, group_id) VALUES (?, ?)",
+                    (rid, gid),
+                )
+            await db.commit()
+
+        # Seed default notification templates if empty
+        cursor = await db.execute("SELECT COUNT(*) FROM notification_templates")
+        template_count = (await cursor.fetchone())[0]
+        if template_count == 0:
+            default_templates = [
+                (
+                    "tmpl-blockage",
+                    "blockage",
+                    "Curb Grate Blockage Alert",
+                    "URGENT: Culvert grate blockage detected at {location}. Surface coverage: {occlusion_ratio}%. Immediate clearance required.",
+                ),
+                (
+                    "tmpl-warning",
+                    "warning",
+                    "Rising Water Inflow Warning",
+                    "ADVISORY: Heavy inflow approaching {location} at {time}. Monitor drainage channels.",
+                ),
+                (
+                    "tmpl-critical",
+                    "critical",
+                    "Critical Overflow Risk",
+                    "CRITICAL: Severe obstruction at {location}. Flood threshold reached. Deploy response team immediately.",
+                ),
+                (
+                    "tmpl-announcement",
+                    "announcement",
+                    "General DRRMO Advisory",
+                    "COMMUNITY ADVISORY: Drainage maintenance scheduled for {location} on {time}. Keep grates clear.",
+                ),
+            ]
+            for tid, ttype, title, msg in default_templates:
+                await db.execute(
+                    "INSERT INTO notification_templates (id, type, title, message) VALUES (?, ?, ?, ?)",
+                    (tid, ttype, title, msg),
+                )
+            await db.commit()
 
         # Seed default camera if not exists
         default_cam_id = "cam-default"

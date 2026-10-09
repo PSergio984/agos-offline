@@ -15,8 +15,10 @@ import { IncidentHistory } from './components/IncidentHistory';
 import { Sidebar, NavTabId } from './components/Sidebar';
 import { WeatherView } from './components/WeatherView';
 import { DiagnosticsView } from './components/DiagnosticsView';
+import { RespondersView } from './components/RespondersView';
 import { loadROI, fetchWeather, fetchSyncStatus } from './services/api';
 import { sirenSynthesizer } from './services/audioSiren';
+import { useTheme } from './context/useTheme';
 import {
   Sliders,
   Radio,
@@ -24,6 +26,8 @@ import {
   Layers,
   ChevronDown,
   Gauge,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 interface CameraOption {
@@ -55,6 +59,7 @@ const CAMERAS: CameraOption[] = [
 ];
 
 export const App: React.FC = () => {
+  const { isDark, toggleTheme } = useTheme();
   const [selectedCamera, setSelectedCamera] = useState<CameraOption>(CAMERAS[0]);
   const [currentRoi, setCurrentRoi] = useState<ROI>(CAMERAS[0].defaultRoi);
   const [isEditingRoi, setIsEditingRoi] = useState<boolean>(false);
@@ -247,7 +252,7 @@ export const App: React.FC = () => {
   const isWarning = telemetry.status === 'WARNING';
 
   return (
-    <div className="min-h-screen flex bg-[#050B14] text-slate-100 font-sans selection:bg-teal-500 selection:text-white">
+    <div className="min-h-screen bg-[#F0F4F8] dark:bg-[#050B14] text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-300">
       {/* 1. COLLAPSIBLE DESKTOP SIDEBAR (matching agos-admin) */}
       <Sidebar
         isCollapsed={isSidebarCollapsed}
@@ -267,14 +272,16 @@ export const App: React.FC = () => {
         }`}
       >
         {/* Streamlined Contextual Top Header */}
-        <header className="sticky top-0 z-30 h-16 bg-[#050B14]/85 backdrop-blur-md border-b border-slate-800/80 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
+        <header className="sticky top-0 z-30 h-16 bg-white/80 dark:bg-[#050B14]/85 backdrop-blur-md border-b border-slate-200 dark:border-slate-800/80 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4 transition-colors">
           {/* Left: View Title & Context Controls */}
           <div className="flex items-center gap-3 min-w-0">
-            <h1 className="font-bold text-base sm:text-lg text-white tracking-tight truncate">
+            <h1 className="font-bold text-base sm:text-lg text-slate-900 dark:text-white tracking-tight truncate">
               {activeTab === 'monitoring'
                 ? 'Live Drainage Monitoring'
                 : activeTab === 'weather'
                 ? 'Weather Intelligence'
+                : activeTab === 'responders'
+                ? 'Responders & Alerts Operations'
                 : activeTab === 'incidents'
                 ? 'Drainage Incident Log'
                 : 'System Diagnostics'}
@@ -289,7 +296,7 @@ export const App: React.FC = () => {
                     const found = CAMERAS.find((c) => c.id === e.target.value);
                     if (found) setSelectedCamera(found);
                   }}
-                  className="w-full bg-slate-950/80 border border-slate-700/70 text-slate-200 rounded-xl pl-3 pr-8 py-1.5 text-xs font-medium focus:outline-none focus:border-teal-500 appearance-none cursor-pointer"
+                  className="w-full bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-700/70 text-slate-800 dark:text-slate-200 rounded-xl pl-3 pr-8 py-1.5 text-xs font-medium focus:outline-none focus:border-teal-500 appearance-none cursor-pointer shadow-xs"
                 >
                   {CAMERAS.map((cam) => (
                     <option key={cam.id} value={cam.id}>
@@ -302,8 +309,8 @@ export const App: React.FC = () => {
             )}
           </div>
 
-          {/* Right: PST Clock & Quick Radio Trigger */}
-          <div className="flex items-center gap-3 shrink-0">
+          {/* Right: PST Clock, Theme Toggle & Quick Radio Trigger */}
+          <div className="flex items-center gap-2.5 shrink-0">
             {isCritical && (
               <button
                 type="button"
@@ -316,10 +323,21 @@ export const App: React.FC = () => {
             )}
 
             {/* Live Clock */}
-            <div className="flex items-center gap-1.5 text-xs font-mono text-slate-400 bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-800/80">
-              <Clock className="w-3.5 h-3.5 text-teal-400" />
+            <div className="flex items-center gap-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-950/60 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800/80">
+              <Clock className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
               <span>{currentTime || 'PST'}</span>
             </div>
+
+            {/* Top Bar Theme Toggle */}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="flex items-center justify-center p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-950/60 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-800/80 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer shadow-xs"
+              title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
+            </button>
           </div>
         </header>
 
@@ -338,7 +356,7 @@ export const App: React.FC = () => {
               {/* LEFT VIEWPORT: Camera feed + Contextual Controls (8 cols) */}
               <section className="lg:col-span-8 flex flex-col gap-4">
                 {/* Mobile Camera Dropdown & ROI Toggle Bar */}
-                <div className="flex sm:hidden items-center justify-between gap-2 bg-[#0B1526]/80 border border-slate-800/80 rounded-2xl p-2.5">
+                <div className="flex sm:hidden items-center justify-between gap-2 bg-white/80 dark:bg-[#0B1526]/80 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-2.5">
                   <div className="relative flex-1">
                     <select
                       value={selectedCamera.id}
@@ -346,7 +364,7 @@ export const App: React.FC = () => {
                         const found = CAMERAS.find((c) => c.id === e.target.value);
                         if (found) setSelectedCamera(found);
                       }}
-                      className="w-full bg-slate-950/80 border border-slate-700/70 text-slate-200 rounded-xl pl-3 pr-8 py-1.5 text-xs font-medium focus:outline-none appearance-none"
+                      className="w-full bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-700/70 text-slate-800 dark:text-slate-200 rounded-xl pl-3 pr-8 py-1.5 text-xs font-medium focus:outline-none appearance-none"
                     >
                       {CAMERAS.map((cam) => (
                         <option key={cam.id} value={cam.id}>
@@ -359,7 +377,7 @@ export const App: React.FC = () => {
                 </div>
 
                 {/* Camera Canvas Viewport */}
-                <div className="relative rounded-2xl overflow-hidden border border-slate-800/80 bg-black shadow-2xl">
+                <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800/80 bg-black shadow-2xl">
                   <CameraFeed
                     roi={currentRoi}
                     showROIOverlay={showRoiOverlay}
@@ -397,11 +415,11 @@ export const App: React.FC = () => {
                     className={`flex items-center justify-center gap-2 px-4 py-3 sm:py-2.5 rounded-2xl text-xs font-medium border transition-all cursor-pointer shrink-0 ${
                       isEditingRoi
                         ? 'bg-teal-500 text-slate-950 border-teal-400 shadow-md font-semibold'
-                        : 'bg-[#0B1526]/80 hover:bg-slate-800 text-slate-300 border-slate-800/80'
+                        : 'bg-white hover:bg-slate-100 dark:bg-[#0B1526]/80 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800/80'
                     }`}
                     title="Calibrate Grate Region of Interest (ROI)"
                   >
-                    <Sliders className={`w-3.5 h-3.5 ${isEditingRoi ? 'text-slate-950' : 'text-teal-400'}`} />
+                    <Sliders className={`w-3.5 h-3.5 ${isEditingRoi ? 'text-slate-950' : 'text-teal-500 dark:text-teal-400'}`} />
                     <span>{isEditingRoi ? 'Exit ROI Editor' : 'Calibrate Grate ROI'}</span>
                   </button>
                 </div>
@@ -410,19 +428,19 @@ export const App: React.FC = () => {
               {/* RIGHT SIDEBAR: Operative Metrics & Action (4 cols) */}
               <aside className="lg:col-span-4 flex flex-col gap-5">
                 {/* Card 1: Grate Occlusion Gauge Card */}
-                <div className="bg-[#0B1526]/80 border border-slate-800/80 rounded-2xl p-5 shadow-lg backdrop-blur-md">
-                  <div className="flex items-center justify-between pb-3.5 border-b border-slate-800/80">
+                <div className="bg-white/80 dark:bg-[#0B1526]/80 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-lg backdrop-blur-md">
+                  <div className="flex items-center justify-between pb-3.5 border-b border-slate-200 dark:border-slate-800/80">
                     <div className="flex items-center gap-2.5">
-                      <Gauge className="w-5 h-5 text-teal-400" />
-                      <h3 className="font-bold text-sm text-white">Grate Occlusion</h3>
+                      <Gauge className="w-5 h-5 text-teal-500 dark:text-teal-400" />
+                      <h3 className="font-bold text-sm text-slate-900 dark:text-white">Grate Occlusion</h3>
                     </div>
                     <span
                       className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border uppercase tracking-wider ${
                         isCritical
-                          ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                          ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
                           : isWarning
-                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                          : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
                       }`}
                     >
                       {String(telemetry.status || 'CLEAR')}
@@ -432,16 +450,16 @@ export const App: React.FC = () => {
                   {/* Occlusion Level Bar & Number */}
                   <div className="py-5">
                     <div className="flex items-baseline justify-between mb-2.5">
-                      <span className="text-4xl font-extrabold text-white tracking-tight">
+                      <span className="text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
                         {telemetry.occlusion_ratio.toFixed(1)}%
                       </span>
-                      <span className="text-xs text-slate-400">
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
                         Critical Threshold: ≥ 60.0%
                       </span>
                     </div>
 
                     {/* Progress Track */}
-                    <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5 relative">
+                    <div className="w-full h-3 bg-slate-200 dark:bg-slate-950 rounded-full overflow-hidden border border-slate-300 dark:border-slate-800 p-0.5 relative">
                       <div
                         className={`h-full rounded-full transition-all duration-500 ${
                           isCritical
@@ -467,25 +485,25 @@ export const App: React.FC = () => {
                     </div>
 
                     {/* Threshold Scale */}
-                    <div className="flex justify-between text-[11px] text-slate-400 mt-2">
+                    <div className="flex justify-between text-[11px] text-slate-500 dark:text-slate-400 mt-2">
                       <span>0% Clear</span>
-                      <span className="text-amber-400 font-medium">20% Warning</span>
-                      <span className="text-rose-400 font-medium">60% Critical</span>
+                      <span className="text-amber-600 dark:text-amber-400 font-medium">20% Warning</span>
+                      <span className="text-rose-600 dark:text-rose-400 font-medium">60% Critical</span>
                       <span>100%</span>
                     </div>
                   </div>
 
                   {/* Secondary Indicators: Temporal Smoothing & Water Level */}
-                  <div className="grid grid-cols-2 gap-3 pt-4 border-t border-slate-800/80 text-xs">
-                    <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
-                      <span className="text-slate-400 block text-[11px] mb-1">Temporal Smoothing:</span>
-                      <span className="font-semibold text-teal-300">
+                  <div className="grid grid-cols-2 gap-3 pt-4 border-t border-slate-200 dark:border-slate-800/80 text-xs">
+                    <div className="bg-slate-100 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800/80">
+                      <span className="text-slate-500 dark:text-slate-400 block text-[11px] mb-1">Temporal Smoothing:</span>
+                      <span className="font-semibold text-teal-600 dark:text-teal-300">
                         {telemetry.hysteresis_ratio || '2-of-3 frames (Pass)'}
                       </span>
                     </div>
-                    <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
-                      <span className="text-slate-400 block text-[11px] mb-1">Ponding Depth:</span>
-                      <span className="font-semibold text-amber-300">
+                    <div className="bg-slate-100 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800/80">
+                      <span className="text-slate-500 dark:text-slate-400 block text-[11px] mb-1">Ponding Depth:</span>
+                      <span className="font-semibold text-amber-600 dark:text-amber-300">
                         +{telemetry.pond_level_cm || 14.5} cm
                       </span>
                     </div>
@@ -493,13 +511,13 @@ export const App: React.FC = () => {
                 </div>
 
                 {/* Card 2: Debris Breakdown Card */}
-                <div className="bg-[#0B1526]/80 border border-slate-800/80 rounded-2xl p-5 shadow-lg backdrop-blur-md">
-                  <div className="flex items-center justify-between pb-3.5 border-b border-slate-800/80">
+                <div className="bg-white/80 dark:bg-[#0B1526]/80 border border-slate-200 dark:border-slate-800/80 rounded-2xl p-5 shadow-lg backdrop-blur-md">
+                  <div className="flex items-center justify-between pb-3.5 border-b border-slate-200 dark:border-slate-800/80">
                     <div className="flex items-center gap-2.5">
-                      <Layers className="w-5 h-5 text-teal-400" />
-                      <h3 className="font-bold text-sm text-white">Classified Debris</h3>
+                      <Layers className="w-5 h-5 text-teal-500 dark:text-teal-400" />
+                      <h3 className="font-bold text-sm text-slate-900 dark:text-white">Classified Debris</h3>
                     </div>
-                    <span className="text-xs text-teal-300 bg-teal-500/10 px-2.5 py-0.5 rounded-full border border-teal-500/20">
+                    <span className="text-xs text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-500/10 px-2.5 py-0.5 rounded-full border border-teal-200 dark:border-teal-500/20">
                       {telemetry.detections.length} Items Detected
                     </span>
                   </div>
@@ -511,15 +529,15 @@ export const App: React.FC = () => {
                       telemetry.detections.map((det, idx) => (
                         <div
                           key={idx}
-                          className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800/70 flex items-center justify-between text-xs"
+                          className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800/70 flex items-center justify-between text-xs"
                         >
                           <div className="flex items-center gap-2">
                             <span className="w-2 h-2 rounded-full bg-rose-400" />
-                            <span className="font-medium text-slate-200">{det.label}</span>
+                            <span className="font-medium text-slate-800 dark:text-slate-200">{det.label}</span>
                           </div>
-                          <div className="flex items-center gap-1.5 text-slate-400">
+                          <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
                             <span>Conf:</span>
-                            <span className="text-teal-300 font-semibold font-mono">
+                            <span className="text-teal-600 dark:text-teal-300 font-semibold font-mono">
                               {(det.confidence * 100).toFixed(0)}%
                             </span>
                           </div>
@@ -544,6 +562,13 @@ export const App: React.FC = () => {
           {activeTab === 'weather' && (
             /* DEDICATED WEATHER INTELLIGENCE VIEW */
             <WeatherView weather={weather} onRefresh={refreshAux} />
+          )}
+
+          {activeTab === 'responders' && (
+            /* DEDICATED RESPONDERS & ALERTS VIEW */
+            <div className="w-full">
+              <RespondersView />
+            </div>
           )}
 
           {activeTab === 'incidents' && (

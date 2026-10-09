@@ -78,3 +78,58 @@ export interface ModelStatus {
   next_inference_in?: number | null;
   interval_seconds?: number | null;
 }
+
+export interface ResponderNotificationPreferences {
+  warning: boolean;
+  critical: boolean;
+  blockage: boolean;
+  announcement: boolean;
+}
+
+export interface Responder {
+  id: string;
+  first_name: string;
+  last_name: string;
+  phone_number: string;
+  status: 'active' | 'inactive' | string;
+  location: string;
+  notif_preferences: ResponderNotificationPreferences | string;
+  created_at?: string;
+  group_ids?: string[];
+}
+
+export interface ResponderGroup {
+  id: string;
+  name: string;
+  description: string;
+  created_at?: string;
+  member_count?: number;
+  member_ids?: string[];
+}
+
+export interface NotificationTemplate {
+  id: string;
+  type: 'blockage' | 'warning' | 'critical' | 'announcement' | string;
+  title: string;
+  message: string;
+  created_at?: string;
+}
+
+export interface AnnouncementPayload {
+  type: string;
+  title: string;
+  message: string;
+  target_group_id?: string;
+}
+
+export interface NotificationLog {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  target_group_id?: string | null;
+  target_group_name?: string | null;
+  recipient_count: number;
+  status: string;
+  created_at: string;
+}

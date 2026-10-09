@@ -16,6 +16,8 @@ from app.api.cameras import router as cameras_router, switch_stream_source, Stre
 from app.api.incidents import router as incidents_router
 from app.api.weather import router as weather_router
 from app.api.sync import router as sync_router
+from app.api.responders import router as responders_router
+from app.api.notifications import router as notifications_router
 from app.api.ws import router as ws_router, broadcast_loop, manager
 
 # Setup logging
@@ -112,6 +114,8 @@ app.include_router(cameras_router, prefix=f"{settings.API_PREFIX}/cameras", tags
 app.include_router(incidents_router, prefix=f"{settings.API_PREFIX}/incidents", tags=["Incidents"])
 app.include_router(weather_router, prefix=f"{settings.API_PREFIX}/weather", tags=["Weather"])
 app.include_router(sync_router, prefix=f"{settings.API_PREFIX}/sync", tags=["Sync"])
+app.include_router(responders_router, prefix="/api/v1", tags=["responders"])
+app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])
 app.include_router(ws_router)
 app.include_router(ws_router, prefix=settings.API_PREFIX)
 
