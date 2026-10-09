@@ -113,11 +113,12 @@ export async function fetchIncidents(): Promise<Incident[]> {
       id: 'INC-2026-1008-01',
       timestamp: '2026-10-09 14:48:22',
       camera_id: 'cam-01',
-      camera_name: 'CAM-01: Rizal Ave Culvert #4',
-      location: 'Brgy. San Jose, Rizal Ave cor. Mabini St.',
+      camera_name: 'CAM-01: Jiongco Creek Maysan',
+      location: 'Jiongco Creek, Brgy. Maysan, Valenzuela City',
       occlusion_ratio: 78.4,
       status: 'CRITICAL BLOCKED',
-      debris_types: ['Plastic Sacks', 'Vegetative Cluster', 'Styrofoam'],
+      debris_count: 3,
+      debris_types: [],
       action_taken: 'DISPATCHED',
       dispatched_at: '14:50:11',
       acknowledged: true,
@@ -126,11 +127,12 @@ export async function fetchIncidents(): Promise<Incident[]> {
       id: 'INC-2026-1008-02',
       timestamp: '2026-10-09 13:22:15',
       camera_id: 'cam-01',
-      camera_name: 'CAM-01: Rizal Ave Culvert #4',
-      location: 'Brgy. San Jose, Rizal Ave cor. Mabini St.',
+      camera_name: 'CAM-01: Jiongco Creek Maysan',
+      location: 'Jiongco Creek, Brgy. Maysan, Valenzuela City',
       occlusion_ratio: 42.1,
       status: 'WARNING',
-      debris_types: ['Plastic Bottles', 'Cardboard Debris'],
+      debris_count: 2,
+      debris_types: [],
       action_taken: 'RESOLVED',
       dispatched_at: '13:25:00',
       acknowledged: true,
@@ -139,11 +141,12 @@ export async function fetchIncidents(): Promise<Incident[]> {
       id: 'INC-2026-1008-03',
       timestamp: '2026-10-09 11:05:40',
       camera_id: 'cam-02',
-      camera_name: 'CAM-02: Taft Inflow Canal Gate 2',
-      location: 'Brgy. Taft Central, Gate 2 Sluice',
+      camera_name: 'CAM-02: Jet Malanday',
+      location: 'Jet, Brgy. Malanday, Valenzuela City',
       occlusion_ratio: 84.6,
       status: 'CRITICAL BLOCKED',
-      debris_types: ['Car Tire', 'Trash Bags', 'Tree Branch'],
+      debris_count: 4,
+      debris_types: [],
       action_taken: 'RESOLVED',
       dispatched_at: '11:07:33',
       acknowledged: true,
@@ -379,7 +382,7 @@ const DEFAULT_LOGS: NotificationLog[] = [
     id: 'log-01',
     type: 'blockage',
     title: 'Canal Blockage Alert',
-    message: 'URGENT: Canal blockage detected at Brgy. San Jose, Rizal Ave cor. Mabini St.. Blockage level: 78.4%. Please clear immediately.',
+    message: 'URGENT: Canal blockage detected at Jiongco Creek, Brgy. Maysan, Valenzuela City. Blockage level: 78.4%. Please clear immediately.',
     target_group_id: 'grp-poblacion',
     target_group_name: 'Barangay Poblacion QRT',
     recipient_count: 2,
@@ -390,7 +393,7 @@ const DEFAULT_LOGS: NotificationLog[] = [
     id: 'log-02',
     type: 'warning',
     title: 'Rising Water Inflow Warning',
-    message: 'ADVISORY: Heavy inflow approaching Brgy. Taft Central at 13:25:00. Monitor drainage channels.',
+    message: 'ADVISORY: Heavy inflow approaching Jet, Brgy. Malanday at 13:25:00. Monitor drainage channels.',
     target_group_id: 'grp-drainage',
     target_group_name: 'Drainage Maintenance Unit',
     recipient_count: 2,
@@ -556,8 +559,33 @@ export async function updateResponderGroup(id: string, payload: Partial<Responde
   }
 
   const items = getStoredOr('agos_responder_groups', DEFAULT_RESPONDER_GROUPS);
-  const updated = items.map((g) => (g.id === id ? { ...g, ...payload } : g));
+  const updated = items.map((g) => {
+    if (g.id !== id) return g;
+    const member_ids = payload.member_ids !== undefined ? payload.member_ids : g.member_ids;
+    return {
+      ...g,
+      ...payload,
+      member_ids,
+      member_count: member_ids ? member_ids.length : g.member_count,
+    };
+  });
   setStored('agos_responder_groups', updated);
+
+  if (payload.member_ids !== undefined) {
+    const responders = getStoredOr('agos_responders', DEFAULT_RESPONDERS);
+    const targetSet = new Set(payload.member_ids);
+    const updatedResponders = responders.map((r) => {
+      const currentGroups = new Set(r.group_ids || []);
+      if (targetSet.has(r.id)) {
+        currentGroups.add(id);
+      } else {
+        currentGroups.delete(id);
+      }
+      return { ...r, group_ids: Array.from(currentGroups) };
+    });
+    setStored('agos_responders', updatedResponders);
+  }
+
   return updated.find((g) => g.id === id) || (payload as ResponderGroup);
 }
 

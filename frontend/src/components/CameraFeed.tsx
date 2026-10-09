@@ -17,7 +17,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
   isROIEditing = false,
   onTelemetryUpdate,
   cameraId = 'cam-01',
-  cameraName = 'CAM-01: Rizal Ave Culvert #4',
+  cameraName = 'CAM-01: Jiongco Creek Maysan',
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'simulated'>('connecting');

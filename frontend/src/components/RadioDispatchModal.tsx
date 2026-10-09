@@ -14,21 +14,25 @@ interface RadioDispatchModalProps {
   occlusionRatio: number;
   status: string;
   debrisTypes?: string[];
+  debrisCount?: number;
   initialRadioTicket?: string | null;
   targetGroupId?: string;
   onDispatched?: () => void;
   rainHazard?: boolean;
 }
 
+export const generateFallbackTicketId = (): string => {
+  return `RAD-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+};
+
 export const RadioDispatchModal: React.FC<RadioDispatchModalProps> = ({
   isOpen,
   onClose,
   incidentId,
   cameraName,
-  location = 'Brgy. San Jose, Rizal Ave cor. Mabini St.',
+  location = 'Jiongco Creek, Brgy. Maysan, Valenzuela City',
   occlusionRatio,
   status,
-  debrisTypes = ['Plastic Sacks', 'Vegetative Cluster', 'Styrofoam'],
   initialRadioTicket,
   targetGroupId,
   onDispatched,
@@ -77,14 +81,14 @@ export const RadioDispatchModal: React.FC<RadioDispatchModalProps> = ({
           } else if (initialRadioTicket) {
             setTicketId(initialRadioTicket);
           } else {
-            setTicketId(`RAD-${Math.random().toString(36).substring(2, 8).toUpperCase()}`);
+            setTicketId(generateFallbackTicketId());
           }
         })
         .catch(() => {
-          setTicketId(initialRadioTicket || `RAD-${Math.random().toString(36).substring(2, 8).toUpperCase()}`);
+          setTicketId(initialRadioTicket || generateFallbackTicketId());
         });
     } else {
-      setTicketId(initialRadioTicket || `RAD-${Math.random().toString(36).substring(2, 8).toUpperCase()}`);
+      setTicketId(initialRadioTicket || generateFallbackTicketId());
     }
   }, [isOpen, incidentId, initialRadioTicket, targetGroupId]);
 
@@ -299,12 +303,6 @@ export const RadioDispatchModal: React.FC<RadioDispatchModalProps> = ({
               <span className="font-medium">Trash Blockage:</span>
               <span className="text-rose-600 dark:text-rose-400 font-bold">
                 {occlusionRatio.toFixed(1)}% ({status})
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-              <span className="font-medium">Detected Debris:</span>
-              <span className="text-amber-700 dark:text-amber-300 font-semibold">
-                {debrisTypes.join(', ') || 'Solid waste cluster'}
               </span>
             </div>
           </div>

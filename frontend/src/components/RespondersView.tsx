@@ -21,6 +21,10 @@ import {
   Wifi,
   Radio,
   AlertTriangle,
+  Edit3,
+  UserCheck,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   Responder,
@@ -36,6 +40,7 @@ import {
   deleteResponder,
   fetchResponderGroups,
   createResponderGroup,
+  updateResponderGroup,
   deleteResponderGroup,
   fetchNotificationTemplates,
   createNotificationTemplate,
@@ -77,10 +82,19 @@ export const RespondersView: React.FC = () => {
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [templateCategoryFilter, setTemplateCategoryFilter] = useState<string>('all');
+
+  // Sent Alerts History Filter & Pagination
+  const [logSearchQuery, setLogSearchQuery] = useState<string>('');
+  const [logTypeFilter, setLogTypeFilter] = useState<string>('all');
+  const [logTargetFilter, setLogTargetFilter] = useState<string>('all');
+  const [logCurrentPage, setLogCurrentPage] = useState<number>(1);
+  const [logItemsPerPage, setLogItemsPerPage] = useState<number>(10);
 
   // Modals state
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState<boolean>(false);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState<boolean>(false);
+  const [editingGroup, setEditingGroup] = useState<ResponderGroup | null>(null);
   const [isResponderModalOpen, setIsResponderModalOpen] = useState<boolean>(false);
   const [isNewMenuOpen, setIsNewMenuOpen] = useState<boolean>(false);
   const newMenuRef = useRef<HTMLDivElement>(null);
@@ -95,6 +109,7 @@ export const RespondersView: React.FC = () => {
   const [groupForm, setGroupForm] = useState({
     name: '',
     description: '',
+    member_ids: [] as string[],
   });
 
   const [responderForm, setResponderForm] = useState({
@@ -119,7 +134,7 @@ export const RespondersView: React.FC = () => {
     title: 'Canal Blockage Alert',
     type: 'blockage',
     rawMessage: 'URGENT: Canal blockage detected at {location}. Blockage level: {blockage_level}%. Please clear immediately.',
-    varLocation: 'Brgy. San Jose, Rizal Ave cor. Mabini St.',
+    varLocation: 'Jiongco Creek, Brgy. Maysan, Valenzuela City',
     varOcclusion: '78.4',
     varTime: '20:30 PST',
   });
@@ -357,15 +372,60 @@ export const RespondersView: React.FC = () => {
     await loadAllData();
   };
 
-  // Create Group
-  const handleCreateGroup = async (e: React.FormEvent) => {
+  // Open Group Modal for Creating
+  const handleOpenCreateGroup = () => {
+    setEditingGroup(null);
+    setGroupForm({ name: '', description: '', member_ids: [] });
+    setIsGroupModalOpen(true);
+  };
+
+  // Open Group Modal for Editing
+  const handleOpenEditGroup = (group: ResponderGroup) => {
+    setEditingGroup(group);
+    // Find current member IDs assigned to this group either via group.member_ids or responders list
+    const currentMemberIds = group.member_ids && group.member_ids.length > 0
+      ? group.member_ids
+      : responders.filter((r) => r.group_ids?.includes(group.id)).map((r) => r.id);
+
+    setGroupForm({
+      name: group.name,
+      description: group.description || '',
+      member_ids: currentMemberIds,
+    });
+    setIsGroupModalOpen(true);
+  };
+
+  // Toggle member selection in Group Form
+  const handleToggleGroupMember = (responderId: string) => {
+    setGroupForm((prev) => ({
+      ...prev,
+      member_ids: prev.member_ids.includes(responderId)
+        ? prev.member_ids.filter((id) => id !== responderId)
+        : [...prev.member_ids, responderId],
+    }));
+  };
+
+  // Save (Create or Update) Group with members
+  const handleSaveGroup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!groupForm.name.trim()) return;
-    await createResponderGroup({
-      name: groupForm.name.trim(),
-      description: groupForm.description.trim(),
-    });
-    setGroupForm({ name: '', description: '' });
+
+    if (editingGroup) {
+      await updateResponderGroup(editingGroup.id, {
+        name: groupForm.name.trim(),
+        description: groupForm.description.trim(),
+        member_ids: groupForm.member_ids,
+      });
+    } else {
+      await createResponderGroup({
+        name: groupForm.name.trim(),
+        description: groupForm.description.trim(),
+        member_ids: groupForm.member_ids,
+      });
+    }
+
+    setGroupForm({ name: '', description: '', member_ids: [] });
+    setEditingGroup(null);
     setIsGroupModalOpen(false);
     await loadAllData();
   };
@@ -415,11 +475,15 @@ export const RespondersView: React.FC = () => {
       case 'critical':
         return 'bg-red-500';
       case 'warning':
-        return 'bg-yellow-500';
+        return 'bg-amber-500';
       case 'blockage':
-        return 'bg-gray-700';
+        return 'bg-slate-700';
       case 'announcement':
         return 'bg-blue-500';
+      case 'maintenance':
+        return 'bg-emerald-600';
+      case 'clear':
+        return 'bg-teal-600';
       default:
         return 'bg-slate-500';
     }
@@ -435,6 +499,10 @@ export const RespondersView: React.FC = () => {
         return 'Surface Obstruction Alert';
       case 'announcement':
         return 'Announcement';
+      case 'maintenance':
+        return 'Maintenance Advisory';
+      case 'clear':
+        return 'All Clear';
       default:
         return type;
     }
@@ -448,8 +516,12 @@ export const RespondersView: React.FC = () => {
         return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/80 dark:text-amber-300 dark:border-amber-800';
       case 'blockage':
         return 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/80 dark:text-red-300 dark:border-red-800';
-      default:
+      case 'maintenance':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-300 dark:border-emerald-800';
+      case 'clear':
         return 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/80 dark:text-teal-300 dark:border-teal-800';
+      default:
+        return 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/80 dark:text-blue-300 dark:border-blue-800';
     }
   };
 
@@ -566,7 +638,7 @@ export const RespondersView: React.FC = () => {
                   type="button"
                   role="menuitem"
                   onClick={() => {
-                    setIsGroupModalOpen(true);
+                    handleOpenCreateGroup();
                     setIsNewMenuOpen(false);
                   }}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700/50 transition-colors cursor-pointer"
@@ -609,6 +681,48 @@ export const RespondersView: React.FC = () => {
             </span>
           </div>
 
+          {/* Category Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'blockage', label: 'Blockage' },
+              { id: 'warning', label: 'Warning' },
+              { id: 'critical', label: 'Critical' },
+              { id: 'maintenance', label: 'Maintenance' },
+              { id: 'announcement', label: 'Announcement' },
+              { id: 'clear', label: 'All Clear' },
+            ].map((cat) => {
+              const count =
+                cat.id === 'all'
+                  ? templates.length
+                  : templates.filter((t) => t.type.toLowerCase() === cat.id).length;
+              const isActive = templateCategoryFilter === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setTemplateCategoryFilter(cat.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 transition-all cursor-pointer flex items-center gap-1.5 ${
+                    isActive
+                      ? 'bg-primary text-white shadow-sm dark:bg-blue-600'
+                      : 'bg-white/40 dark:bg-white/[0.04] text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-white/[0.08] border border-gray-200/50 dark:border-white/10'
+                  }`}
+                >
+                  <span>{cat.label}</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                      isActive
+                        ? 'bg-white/20 text-white'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
           {isLoading ? (
             <div className="pt-1">
               <div className="skeleton rounded-md w-full h-10" />
@@ -620,7 +734,13 @@ export const RespondersView: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {templates.map((tmpl) => (
+              {templates
+                .filter(
+                  (t) =>
+                    templateCategoryFilter === 'all' ||
+                    t.type.toLowerCase() === templateCategoryFilter
+                )
+                .map((tmpl) => (
                 <div
                   key={tmpl.id}
                   className="relative overflow-hidden p-4 border border-white/50 dark:border-white/10 bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl rounded-2xl shadow-lg flex flex-col justify-between gap-3 transition-all duration-300 hover:shadow-xl hover:dark:border-white/20"
@@ -790,7 +910,9 @@ export const RespondersView: React.FC = () => {
                     <option value="blockage">Blockage</option>
                     <option value="warning">Warning</option>
                     <option value="critical">Critical</option>
+                    <option value="maintenance">Maintenance</option>
                     <option value="announcement">Announcement</option>
+                    <option value="clear">All Clear</option>
                   </select>
                 </div>
               </div>
@@ -937,39 +1059,89 @@ export const RespondersView: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {groups.map((grp) => (
-                <div
-                  key={grp.id}
-                  className="flex flex-col gap-2 rounded-xl border border-gray-200/50 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] p-4 transition-all duration-300 hover:bg-white/60 dark:hover:bg-white/[0.05] hover:shadow-md"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <h4 className="font-medium text-sm text-slate-900 dark:text-slate-200">
-                      {grp.name}
-                    </h4>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteGroup(grp.id)}
-                      className="flex items-center justify-center btn-custom bg-red-500 hover:bg-red-600 text-white p-2 shrink-0"
-                      title="Delete team"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <p className="text-sm text-gray-700 dark:text-slate-400 leading-relaxed">
-                    {grp.description || 'No description provided.'}
-                  </p>
-
-                  <div className="mt-auto pt-3 border-t border-gray-100 dark:border-white/5 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-400">
-                      <Users className="h-4 w-4" />
-                      <span>{grp.member_count ?? 0} members</span>
+              {groups.map((grp) => {
+                const assignedResponders = responders.filter(
+                  (r) => (grp.member_ids && grp.member_ids.includes(r.id)) || r.group_ids?.includes(grp.id)
+                );
+                return (
+                  <div
+                    key={grp.id}
+                    className="flex flex-col gap-2 rounded-xl border border-gray-200/50 dark:border-white/10 bg-white/40 dark:bg-white/[0.02] p-4 transition-all duration-300 hover:bg-white/60 dark:hover:bg-white/[0.05] hover:shadow-md"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="font-semibold text-sm text-slate-900 dark:text-slate-100">
+                          {grp.name}
+                        </h4>
+                        <span className="text-[10px] font-mono text-slate-400">
+                          ID: {grp.id}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditGroup(grp)}
+                          className="flex items-center gap-1 btn-custom bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60 px-2.5 py-1.5 text-xs font-medium cursor-pointer"
+                          title="Edit team and members"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteGroup(grp.id)}
+                          className="flex items-center justify-center btn-custom bg-red-500 hover:bg-red-600 text-white p-2 shrink-0 cursor-pointer"
+                          title="Delete team"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                    <span className="text-[10px] font-mono text-slate-400">
-                      ID: {grp.id}
-                    </span>
+
+                    <p className="text-xs text-gray-700 dark:text-slate-400 leading-relaxed">
+                      {grp.description || 'No description provided.'}
+                    </p>
+
+                    {/* Member Avatars / Names Chips */}
+                    <div className="mt-1 flex flex-wrap gap-1.5 items-center">
+                      {assignedResponders.slice(0, 4).map((m) => (
+                        <span
+                          key={m.id}
+                          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-white/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60 font-medium"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          {m.first_name} {m.last_name}
+                        </span>
+                      ))}
+                      {assignedResponders.length > 4 && (
+                        <span className="text-[10px] font-mono font-medium text-slate-400 px-1.5 py-0.5">
+                          +{assignedResponders.length - 4} more
+                        </span>
+                      )}
+                      {assignedResponders.length === 0 && (
+                        <span className="text-[11px] italic text-slate-400">
+                          No responders assigned yet.
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-auto pt-3 border-t border-gray-100 dark:border-white/5 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 font-medium">
+                        <Users className="h-3.5 w-3.5 text-primary dark:text-blue-400" />
+                        <span>{grp.member_count ?? assignedResponders.length} members assigned</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditGroup(grp)}
+                        className="text-xs font-semibold text-primary dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>Manage Roster</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -1153,94 +1325,271 @@ export const RespondersView: React.FC = () => {
         </div>
       )}
 
-      {/* SUB-TAB 5: Sent Alerts History */}
-      {activeSubTab === 'logs' && (
-        <div className="bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl border border-white/50 dark:border-white/10 shadow-xl rounded-2xl p-5 sm:p-6 space-y-4">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-200/80 dark:border-white/10">
-            <div>
-              <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">
-                Sent Alerts History
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                List of alerts sent to responders.
-              </p>
-            </div>
-            <span className="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400">
-              {logs.length} Sent Alerts
-            </span>
-          </div>
+      {/* SUB-TAB 5: Sent Alerts History with Filters & Pagination */}
+      {activeSubTab === 'logs' && (() => {
+        const filteredLogs = logs.filter((log) => {
+          const matchesType = logTypeFilter === 'all' || log.type.toLowerCase() === logTypeFilter.toLowerCase();
+          const matchesTarget =
+            logTargetFilter === 'all' ||
+            (log.target_group_id ? log.target_group_id === logTargetFilter : logTargetFilter === 'all-responders');
+          const q = logSearchQuery.toLowerCase().trim();
+          const matchesSearch =
+            !q ||
+            log.title.toLowerCase().includes(q) ||
+            log.message.toLowerCase().includes(q) ||
+            (log.target_group_name && log.target_group_name.toLowerCase().includes(q)) ||
+            log.status.toLowerCase().includes(q);
 
-          {isLoading ? (
-            <div className="space-y-3 pt-1">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="skeleton w-full h-14 rounded-md" />
-              ))}
+          return matchesType && matchesTarget && matchesSearch;
+        });
+
+        const totalPages = Math.max(1, Math.ceil(filteredLogs.length / logItemsPerPage));
+        const safeCurrentPage = Math.min(logCurrentPage, totalPages);
+        const startIndex = (safeCurrentPage - 1) * logItemsPerPage;
+        const paginatedLogs = filteredLogs.slice(startIndex, startIndex + logItemsPerPage);
+
+        const logTypeCounts = {
+          all: logs.length,
+          blockage: logs.filter((l) => l.type.toLowerCase() === 'blockage').length,
+          warning: logs.filter((l) => l.type.toLowerCase() === 'warning').length,
+          critical: logs.filter((l) => l.type.toLowerCase() === 'critical').length,
+          maintenance: logs.filter((l) => l.type.toLowerCase() === 'maintenance').length,
+          announcement: logs.filter((l) => l.type.toLowerCase() === 'announcement').length,
+          clear: logs.filter((l) => l.type.toLowerCase() === 'clear').length,
+        };
+
+        return (
+          <div className="bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl border border-white/50 dark:border-white/10 shadow-xl rounded-2xl p-5 sm:p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-slate-200/80 dark:border-white/10">
+              <div>
+                <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">
+                  Sent Alerts History
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Search, filter by alert category or team, and inspect dispatched alerts.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400">
+                  {filteredLogs.length} of {logs.length} Alerts
+                </span>
+              </div>
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-sm whitespace-nowrap">
-                <thead>
-                  <tr className="text-gray-700 dark:text-slate-200">
-                    <th className="px-4 py-3.5 font-bold text-left bg-gray-100 dark:bg-slate-800 rounded-tl-xl uppercase tracking-wider text-[0.65rem] md:text-xs">Type</th>
-                    <th className="px-4 py-3.5 font-bold text-left bg-gray-100 dark:bg-slate-800 uppercase tracking-wider text-[0.65rem] md:text-xs">Title & Message</th>
-                    <th className="px-4 py-3.5 font-bold text-left bg-gray-100 dark:bg-slate-800 uppercase tracking-wider text-[0.65rem] md:text-xs">Target Team</th>
-                    <th className="px-4 py-3.5 font-bold text-left bg-gray-100 dark:bg-slate-800 uppercase tracking-wider text-[0.65rem] md:text-xs">Recipients</th>
-                    <th className="px-4 py-3.5 font-bold text-left bg-gray-100 dark:bg-slate-800 uppercase tracking-wider text-[0.65rem] md:text-xs">Status</th>
-                    <th className="px-4 py-3.5 font-bold text-left bg-gray-100 dark:bg-slate-800 rounded-tr-xl uppercase tracking-wider text-[0.65rem] md:text-xs">Timestamp</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {logs.map((log, index) => (
-                    <tr
-                      key={log.id}
-                      className={`transition-all duration-200 text-gray-700 dark:text-slate-200 hover:bg-gray-100/50 dark:hover:bg-white/[0.03] ${
-                        index % 2 === 0 ? 'bg-white/40 dark:bg-transparent' : 'bg-gray-50/50 dark:bg-white/[0.01]'
+
+            {/* Filter Controls Row */}
+            <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+              {/* Category Pills Filter */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 custom-scrollbar">
+                {[
+                  { id: 'all', label: 'All', count: logTypeCounts.all },
+                  { id: 'blockage', label: 'Blockage', count: logTypeCounts.blockage },
+                  { id: 'warning', label: 'Warning', count: logTypeCounts.warning },
+                  { id: 'critical', label: 'Critical', count: logTypeCounts.critical },
+                  { id: 'maintenance', label: 'Maintenance', count: logTypeCounts.maintenance },
+                  { id: 'announcement', label: 'Advisory', count: logTypeCounts.announcement },
+                  { id: 'clear', label: 'All Clear', count: logTypeCounts.clear },
+                ].map((pill) => {
+                  const isActive = logTypeFilter === pill.id;
+                  return (
+                    <button
+                      key={pill.id}
+                      type="button"
+                      onClick={() => {
+                        setLogTypeFilter(pill.id);
+                        setLogCurrentPage(1);
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                        isActive
+                          ? 'bg-primary text-white shadow-xs dark:bg-blue-600'
+                          : 'bg-white/60 dark:bg-white/5 border border-slate-200/80 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-white/10'
                       }`}
                     >
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase border ${getTypeBadgeClass(log.type)}`}>
-                          {log.type}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 max-w-sm whitespace-normal">
-                        <div className="font-bold text-slate-900 dark:text-slate-100">{log.title}</div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5 font-mono">
-                          {log.message}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap font-medium text-slate-700 dark:text-slate-300">
-                        {log.target_group_name || 'All Registered Responders'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="font-mono font-bold text-primary dark:text-blue-400">
-                          {log.recipient_count}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
-                          <Check className="w-3 h-3" />
-                          <span>{log.status}</span>
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-slate-500 dark:text-slate-400 font-mono text-[11px]">
-                        {log.created_at}
-                      </td>
-                    </tr>
-                  ))}
+                      <span>{pill.label}</span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                          isActive
+                            ? 'bg-white/20 text-white'
+                            : 'bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-slate-400'
+                        }`}
+                      >
+                        {pill.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
 
-                  {logs.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-6 text-center text-gray-500 dark:text-slate-400">
-                        No sent alerts yet.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+              {/* Search & Team Filter */}
+              <div className="flex items-center gap-2 self-stretch md:self-auto shrink-0">
+                {/* Target Team Dropdown */}
+                <select
+                  value={logTargetFilter}
+                  onChange={(e) => {
+                    setLogTargetFilter(e.target.value);
+                    setLogCurrentPage(1);
+                  }}
+                  className="bg-white/60 dark:bg-slate-900 border border-gray-200/50 dark:border-white/10 rounded-xl px-2.5 py-2 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="all">All Teams / Recipients</option>
+                  <option value="all-responders">All Registered Responders</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Search Input */}
+                <div className="relative flex-1 md:w-56">
+                  <Search className="w-3.5 h-3.5 text-gray-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={logSearchQuery}
+                    onChange={(e) => {
+                      setLogSearchQuery(e.target.value);
+                      setLogCurrentPage(1);
+                    }}
+                    placeholder="Search logs..."
+                    className="w-full bg-white/60 dark:bg-slate-900 border border-gray-200/50 dark:border-white/10 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-800 dark:text-slate-200 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              </div>
             </div>
-          )}
-        </div>
-      )}
+
+            {isLoading ? (
+              <div className="space-y-3 pt-1">
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="skeleton w-full h-14 rounded-md" />
+                ))}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-sm whitespace-nowrap">
+                  <thead>
+                    <tr className="text-gray-700 dark:text-slate-200">
+                      <th className="px-4 py-3.5 font-bold text-left bg-gray-100 dark:bg-slate-800 rounded-tl-xl uppercase tracking-wider text-[0.65rem] md:text-xs">Type</th>
+                      <th className="px-4 py-3.5 font-bold text-left bg-gray-100 dark:bg-slate-800 uppercase tracking-wider text-[0.65rem] md:text-xs">Title & Message</th>
+                      <th className="px-4 py-3.5 font-bold text-left bg-gray-100 dark:bg-slate-800 uppercase tracking-wider text-[0.65rem] md:text-xs">Target Team</th>
+                      <th className="px-4 py-3.5 font-bold text-left bg-gray-100 dark:bg-slate-800 uppercase tracking-wider text-[0.65rem] md:text-xs">Recipients</th>
+                      <th className="px-4 py-3.5 font-bold text-left bg-gray-100 dark:bg-slate-800 uppercase tracking-wider text-[0.65rem] md:text-xs">Status</th>
+                      <th className="px-4 py-3.5 font-bold text-left bg-gray-100 dark:bg-slate-800 rounded-tr-xl uppercase tracking-wider text-[0.65rem] md:text-xs">Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedLogs.map((log, index) => (
+                      <tr
+                        key={log.id}
+                        className={`transition-all duration-200 text-gray-700 dark:text-slate-200 hover:bg-gray-100/50 dark:hover:bg-white/[0.03] ${
+                          index % 2 === 0 ? 'bg-white/40 dark:bg-transparent' : 'bg-gray-50/50 dark:bg-white/[0.01]'
+                        }`}
+                      >
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase border ${getTypeBadgeClass(log.type)}`}>
+                            {log.type}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 max-w-sm whitespace-normal">
+                          <div className="font-bold text-slate-900 dark:text-slate-100">{log.title}</div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5 font-mono">
+                            {log.message}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap font-medium text-slate-700 dark:text-slate-300">
+                          {log.target_group_name || 'All Registered Responders'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="font-mono font-bold text-primary dark:text-blue-400">
+                            {log.recipient_count}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
+                            <Check className="w-3 h-3" />
+                            <span>{log.status}</span>
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                          {log.created_at}
+                        </td>
+                      </tr>
+                    ))}
+
+                    {filteredLogs.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-8 text-center text-gray-500 dark:text-slate-400">
+                          No alerts match the selected filters.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Pagination Controls Footer */}
+            {filteredLogs.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200/80 dark:border-white/10 text-xs">
+                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                  <span>
+                    Showing <span className="font-semibold text-slate-800 dark:text-slate-200">{startIndex + 1}</span> to{' '}
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">
+                      {Math.min(startIndex + logItemsPerPage, filteredLogs.length)}
+                    </span>{' '}
+                    of <span className="font-semibold text-slate-800 dark:text-slate-200">{filteredLogs.length}</span> records
+                  </span>
+
+                  <span className="hidden sm:inline text-slate-300 dark:text-slate-700">•</span>
+
+                  <div className="flex items-center gap-1">
+                    <span>Per page:</span>
+                    <select
+                      value={logItemsPerPage}
+                      onChange={(e) => {
+                        setLogItemsPerPage(Number(e.target.value));
+                        setLogCurrentPage(1);
+                      }}
+                      className="bg-transparent border border-slate-200 dark:border-slate-800 rounded-lg px-1.5 py-0.5 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
+                    >
+                      <option value={5}>5</option>
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                      <option value={50}>50</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setLogCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={safeCurrentPage <= 1}
+                    className="p-1.5 rounded-lg border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    title="Previous Page"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+
+                  <div className="flex items-center gap-1 font-mono text-xs text-slate-600 dark:text-slate-300 px-2">
+                    <span className="font-bold text-slate-900 dark:text-slate-100">{safeCurrentPage}</span>
+                    <span className="text-slate-400">/</span>
+                    <span>{totalPages}</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setLogCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={safeCurrentPage >= totalPages}
+                    className="p-1.5 rounded-lg border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    title="Next Page"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* SUB-TAB 6: Phone SMS Gateway */}
       {activeSubTab === 'sms' && (
@@ -1640,7 +1989,9 @@ export const RespondersView: React.FC = () => {
                   <option value="blockage">Blockage</option>
                   <option value="warning">Warning</option>
                   <option value="critical">Critical</option>
+                  <option value="maintenance">Maintenance</option>
                   <option value="announcement">Announcement</option>
+                  <option value="clear">All Clear</option>
                 </select>
               </div>
 
@@ -1693,22 +2044,30 @@ export const RespondersView: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 2: Create Team Modal */}
+      {/* MODAL 2: Create / Edit Team Modal with Member Roster Management */}
       {isGroupModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 dark:bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 border border-white/10 dark:border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl flex flex-col gap-4 text-slate-800 dark:text-slate-100 custom-scrollbar max-h-[92vh] overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-white/10 dark:border-slate-800 rounded-2xl max-w-lg w-full p-5 shadow-2xl flex flex-col gap-4 text-slate-800 dark:text-slate-100 custom-scrollbar max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-              <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">Create Responder Team</h3>
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-primary dark:text-blue-400" />
+                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
+                  {editingGroup ? `Edit Team: ${editingGroup.name}` : 'Create Responder Team'}
+                </h3>
+              </div>
               <button
                 type="button"
-                onClick={() => setIsGroupModalOpen(false)}
+                onClick={() => {
+                  setIsGroupModalOpen(false);
+                  setEditingGroup(null);
+                }}
                 className="p-1.5 rounded-full text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 hover:text-gray-700 dark:hover:text-slate-200 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateGroup} className="space-y-3.5">
+            <form onSubmit={handleSaveGroup} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Team Name
@@ -1719,7 +2078,7 @@ export const RespondersView: React.FC = () => {
                   placeholder="e.g. Barangay San Jose QRT"
                   value={groupForm.name}
                   onChange={(e) => setGroupForm({ ...groupForm, name: e.target.value })}
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-teal-500"
                 />
               </div>
 
@@ -1728,27 +2087,91 @@ export const RespondersView: React.FC = () => {
                   Description
                 </label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   placeholder="Operational responsibilities and patrol area..."
                   value={groupForm.description}
                   onChange={(e) => setGroupForm({ ...groupForm, description: e.target.value })}
-                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs text-slate-800 dark:text-slate-200"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-teal-500"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              {/* Select Team Members */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Assign Team Members ({groupForm.member_ids.length} selected)
+                  </label>
+                  <span className="text-[11px] text-slate-400 font-mono">
+                    Total: {responders.length} responders
+                  </span>
+                </div>
+
+                <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 p-2 space-y-1.5 custom-scrollbar">
+                  {responders.map((r) => {
+                    const isSelected = groupForm.member_ids.includes(r.id);
+                    return (
+                      <label
+                        key={r.id}
+                        className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors border ${
+                          isSelected
+                            ? 'bg-primary/10 border-primary/40 dark:bg-blue-500/10 dark:border-blue-500/40'
+                            : 'bg-white dark:bg-slate-800/40 border-slate-200/60 dark:border-slate-700/60 hover:bg-slate-100/80 dark:hover:bg-slate-800/80'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleGroupMember(r.id)}
+                            className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer"
+                          />
+                          <div>
+                            <div className="text-xs font-medium text-slate-900 dark:text-slate-100">
+                              {r.first_name} {r.last_name}
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                              {r.phone_number} {r.location ? `• ${r.location}` : ''}
+                            </div>
+                          </div>
+                        </div>
+
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                            r.status.toLowerCase() === 'active'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                              : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
+                          }`}
+                        >
+                          {r.status}
+                        </span>
+                      </label>
+                    );
+                  })}
+
+                  {responders.length === 0 && (
+                    <div className="p-4 text-center text-xs text-slate-400">
+                      No responders registered yet. Add responders first to assign them to teams.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200/80 dark:border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setIsGroupModalOpen(false)}
-                  className="btn-cancel py-2 text-xs font-medium"
+                  onClick={() => {
+                    setIsGroupModalOpen(false);
+                    setEditingGroup(null);
+                  }}
+                  className="btn-cancel py-2 text-xs font-medium cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="btn-custom bg-primary hover:bg-primary/90 dark:bg-blue-600 dark:hover:bg-blue-500 text-white py-2 text-xs font-bold"
+                  className="btn-custom bg-primary hover:bg-primary/90 dark:bg-blue-600 dark:hover:bg-blue-500 text-white py-2 text-xs font-bold cursor-pointer"
                 >
-                  Create Team
+                  {editingGroup ? 'Save Team Changes' : 'Create Team'}
                 </button>
               </div>
             </form>

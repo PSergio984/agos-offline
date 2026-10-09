@@ -267,7 +267,9 @@ def test_sustained_critical_keeps_single_open_incident_and_updates_it():
 
     conn = sqlite3.connect(str(settings.DATABASE_PATH))
     try:
-        queue = conn.execute("SELECT status, payload FROM sync_queue").fetchall()
+        queue = conn.execute(
+            "SELECT status, payload FROM sync_queue WHERE entity_type = 'incident'"
+        ).fetchall()
     finally:
         conn.close()
     assert len(queue) == 1

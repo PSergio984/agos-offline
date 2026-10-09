@@ -101,6 +101,8 @@ describe('API Service - Offline First Fallbacks', () => {
       expect(incidents.length).toBeGreaterThanOrEqual(1);
       expect(incidents[0].id).toBe('INC-2026-1008-01');
       expect(incidents[0].status).toBe('CRITICAL BLOCKED');
+      expect(incidents[0].debris_types).toEqual([]);
+      expect(incidents[0].debris_count).toBe(3);
     });
 
     it('resolveIncident returns true when backend resolves successfully', async () => {

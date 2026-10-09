@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 import cv2
 import numpy as np
 
+from app.api.incidents import DISPATCH_PENDING, generate_radio_ticket
 from app.core.config import settings
 from app.core.database import SQL_SELECT_INCIDENTS, serialize_incident
 from app.ml.inference import YOLOInference, draw_annotations
@@ -817,7 +818,9 @@ class StreamService:
             source_tag = self._source_tag()
 
         rel_image_path = f"/storage/incidents/{img_filename}"
-        radio_ticket = f"RAD-{uuid.uuid4().hex[:6].upper()}"
+        # Concise radio ticket ID (RAD-XXXXXX). Field responders and radio operators use this
+        # consistent ticket identifier across voice radio scripts (format_radio_script), SMS, and logs.
+        radio_ticket = generate_radio_ticket()
 
         # Context stamps: which model made the call, and the latest stored rain reading (may be none)
         model = load_model_info(settings.WEIGHTS_PATH)
@@ -831,7 +834,7 @@ class StreamService:
                 id, camera_id, timestamp, occlusion_ratio, status,
                 image_path, debris_count, radio_ticket, synced, is_open, source_type,
                 model_version, model_sha256, precipitation_mm, weather_code
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
             """,
             (
                 incident_id,
@@ -842,6 +845,7 @@ class StreamService:
                 rel_image_path,
                 debris_count,
                 radio_ticket,
+                DISPATCH_PENDING,
                 source_tag,
                 model["model_version"],
                 model["weights_sha256"],

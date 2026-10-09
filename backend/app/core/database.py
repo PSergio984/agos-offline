@@ -223,7 +223,8 @@ def serialize_incident(row: Any) -> Dict[str, Any]:
     d = dict(row)
     d["snapshot_url"] = _cache_safe_snapshot_url(d.get("snapshot_url"))
     d["cloud_synced"] = bool(d["cloud_synced"])
-    d["debris_types"] = ["Plastic Sacks", "PET Bottles", "Organic Debris"] if d.get("debris_count", 0) > 0 else []
+    # The YOLO model is single-class ('debris'); simplify to actual detected class or empty list
+    d["debris_types"] = ["debris"] if d.get("debris_count", 0) > 0 else []
     return d
 
 
@@ -336,62 +337,111 @@ async def init_db() -> None:
                 )
             await db.commit()
 
-        # Seed default notification templates if empty
-        cursor = await db.execute("SELECT COUNT(*) FROM notification_templates")
-        template_count = (await cursor.fetchone())[0]
-        if template_count == 0:
-            default_templates = [
-                (
-                    "tmpl-blockage",
-                    "blockage",
-                    "Curb Grate Blockage Alert",
-                    "URGENT: Culvert grate blockage detected at {location}. Surface coverage: {occlusion_ratio}%. Immediate clearance required.",
-                ),
-                (
-                    "tmpl-warning",
-                    "warning",
-                    "Rising Water Inflow Warning",
-                    "ADVISORY: Heavy inflow approaching {location} at {time}. Monitor drainage channels.",
-                ),
-                (
-                    "tmpl-critical",
-                    "critical",
-                    "Critical Overflow Risk",
-                    "CRITICAL: Severe obstruction at {location}. Flood threshold reached. Deploy response team immediately.",
-                ),
-                (
-                    "tmpl-announcement",
-                    "announcement",
-                    "General DRRMO Advisory",
-                    "COMMUNITY ADVISORY: Drainage maintenance scheduled for {location} on {time}. Keep grates clear.",
-                ),
-                (
-                    "tmpl-clear",
-                    "clear",
-                    "Drainage Blockage Resolved",
-                    "ALL CLEAR: Obstruction at {location} cleared as of {time}. Normal runoff restored.",
-                ),
-            ]
-            for tid, ttype, title, msg in default_templates:
-                await db.execute(
-                    "INSERT INTO notification_templates (id, type, title, message) VALUES (?, ?, ?, ?)",
-                    (tid, ttype, title, msg),
-                )
-            await db.commit()
-        else:
-            # Add tmpl-clear if existing database lacks it
-            cursor = await db.execute("SELECT id FROM notification_templates WHERE id = 'tmpl-clear'")
-            if not await cursor.fetchone():
-                await db.execute(
-                    "INSERT INTO notification_templates (id, type, title, message) VALUES (?, ?, ?, ?)",
-                    (
-                        "tmpl-clear",
-                        "clear",
-                        "Drainage Blockage Resolved",
-                        "ALL CLEAR: Obstruction at {location} cleared as of {time}. Normal runoff restored.",
-                    ),
-                )
-                await db.commit()
+        # Seed or expand default notification templates matching agos-backend standard library
+        default_templates = [
+            (
+                "tmpl-blockage",
+                "blockage",
+                "Curb Grate Blockage Alert",
+                "URGENT: Culvert grate blockage detected at {location}. Surface coverage: {occlusion_ratio}%. Immediate clearance required.",
+            ),
+            (
+                "tmpl-trash-trap",
+                "blockage",
+                "Debris Trap Overflow",
+                "WARNING: Floating debris accumulation at {location} trash trap ({occlusion_ratio}%). Dispatch declogging crew to prevent backflow.",
+            ),
+            (
+                "tmpl-culvert-choke",
+                "blockage",
+                "Culvert Inflow Obstruction",
+                "ALERT: Inflow channel at {location} restricted by solid waste ({occlusion_ratio}% coverage). Water flow impedance detected.",
+            ),
+            (
+                "tmpl-warning",
+                "warning",
+                "Rising Water Inflow Warning",
+                "ADVISORY: Heavy inflow approaching {location} at {time}. Monitor drainage channels and prepare quick-response teams.",
+            ),
+            (
+                "tmpl-rainfall-surge",
+                "warning",
+                "Rainfall Runoff Surge",
+                "ADVISORY: Intense localized precipitation detected. Expect rapid runoff accumulation near {location} as of {time}.",
+            ),
+            (
+                "tmpl-high-tide",
+                "warning",
+                "High Tide & Backflow Advisory",
+                "COASTAL/RIVER ADVISORY: Tidal backflow advisory in effect for {location} at {time}. Sluice gates subject to monitored closure.",
+            ),
+            (
+                "tmpl-critical",
+                "critical",
+                "Critical Overflow Risk",
+                "CRITICAL: Severe obstruction at {location}. Flood threshold reached ({occlusion_ratio}%). Deploy response team immediately.",
+            ),
+            (
+                "tmpl-flash-flood",
+                "critical",
+                "Flash Flood Threat",
+                "EMERGENCY: Immediate flash flood risk at {location}. Water levels critically elevated as of {time}. Clear low-lying roadways.",
+            ),
+            (
+                "tmpl-evacuation",
+                "critical",
+                "Preemptive Evacuation Advisory",
+                "EVACUATION ORDER: Critical flood stage reached at {location}. Initiate preemptive evacuation protocols per DRRMO directive.",
+            ),
+            (
+                "tmpl-maintenance",
+                "maintenance",
+                "Scheduled Drainage Declogging",
+                "SCHEDULED MAINTENANCE: Engineering declogging and dredging underway at {location} as of {time}. Heavy equipment operating.",
+            ),
+            (
+                "tmpl-sluice-ops",
+                "maintenance",
+                "Floodgate & Pump Station Operation",
+                "OPERATIONAL NOTICE: Sluice gate and submersible pump operations active at {location} as of {time}. Keep canals clear.",
+            ),
+            (
+                "tmpl-post-storm",
+                "maintenance",
+                "Post-Event Culvert Inspection",
+                "INSPECTION: Post-storm drainage assessment ongoing at {location}. Field teams checking for submerged debris barriers.",
+            ),
+            (
+                "tmpl-announcement",
+                "announcement",
+                "General DRRMO Advisory",
+                "COMMUNITY ADVISORY: Drainage maintenance scheduled for {location} on {time}. Please keep roadside curb openings clear.",
+            ),
+            (
+                "tmpl-heavy-rain",
+                "announcement",
+                "Rainfall Preparedness Advisory",
+                "WEATHER ALERT: Severe weather advisory issued for {location}. DRRMO response units placed on heightened alert as of {time}.",
+            ),
+            (
+                "tmpl-clear",
+                "clear",
+                "Drainage Blockage Resolved",
+                "ALL CLEAR: Obstruction at {location} cleared as of {time}. Normal runoff restored.",
+            ),
+            (
+                "tmpl-water-receded",
+                "clear",
+                "Water Level Normalized",
+                "ALL CLEAR: Floodwaters have receded at {location} as of {time}. All drainage gates operating at nominal capacity.",
+            ),
+        ]
+        for tid, ttype, title, msg in default_templates:
+            await db.execute(
+                "INSERT OR IGNORE INTO notification_templates (id, type, title, message) VALUES (?, ?, ?, ?)",
+                (tid, ttype, title, msg),
+            )
+        await db.commit()
 
         # Seed default SMS gateway config if empty
         cursor = await db.execute("SELECT COUNT(*) FROM sms_gateway_config")
@@ -447,6 +497,21 @@ async def init_db() -> None:
                 )
             )
             await db.commit()
+
+        # Seed Valenzuela monitoring cameras if not exists
+        valenzuela_cams = [
+            ("cam-01", "CAM-01: Jiongco Creek Maysan", "sample_media/real_demo.mp4", "file", 0, "Jiongco Creek, Brgy. Maysan, Valenzuela City"),
+            ("cam-02", "CAM-02: Jet Malanday", "sample_media/drainage_demo.mp4", "file", 0, "Jet, Brgy. Malanday, Valenzuela City"),
+            ("cam-03", "CAM-03: Dela Cruz Gen T. De Leon", "sample_media/drainage_demo.mp4", "file", 0, "Dela Cruz, Brgy. Gen. T. de Leon, Valenzuela City"),
+        ]
+        for cid, cname, csource, ctype, cactive, cloc in valenzuela_cams:
+            c_cur = await db.execute("SELECT id FROM cameras WHERE id = ?", (cid,))
+            if not await c_cur.fetchone():
+                await db.execute(
+                    "INSERT INTO cameras (id, name, source, source_type, is_active, location) VALUES (?, ?, ?, ?, ?, ?)",
+                    (cid, cname, csource, ctype, cactive, cloc),
+                )
+        await db.commit()
 
 
 async def get_active_camera_record() -> Optional[Dict[str, Any]]:

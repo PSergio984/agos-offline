@@ -59,20 +59,20 @@ const MapPinFilled = ({ className }: { className?: string }) => (
 const CAMERAS: CameraOption[] = [
   {
     id: 'cam-01',
-    name: 'CAM-01: Rizal Ave Culvert #4',
-    location: 'Brgy. San Jose, Rizal Ave cor. Mabini St.',
+    name: 'CAM-01: Jiongco Creek Maysan',
+    location: 'Jiongco Creek, Brgy. Maysan, Valenzuela City',
     defaultRoi: [0.0, 0.0, 1.0, 1.0],
   },
   {
     id: 'cam-02',
-    name: 'CAM-02: Taft Inflow Canal Gate 2',
-    location: 'Brgy. Taft Central, Gate 2 Sluice',
+    name: 'CAM-02: Jet Malanday',
+    location: 'Jet, Brgy. Malanday, Valenzuela City',
     defaultRoi: [0.15, 0.35, 0.85, 0.88],
   },
   {
     id: 'cam-03',
-    name: 'CAM-03: Quirino Curb Drain #11',
-    location: 'Brgy. Poblacion, Quirino Ave Underpass',
+    name: 'CAM-03: Dela Cruz Gen T. De Leon',
+    location: 'Dela Cruz, Brgy. Gen. T. de Leon, Valenzuela City',
     defaultRoi: [0.25, 0.45, 0.75, 0.92],
   },
 ];
@@ -104,9 +104,9 @@ export const App: React.FC = () => {
     status: 'CRITICAL BLOCKED',
     roi: CAMERAS[0].defaultRoi,
     detections: [
-      { label: 'Plastic Sack', confidence: 0.88, box: [0.32, 0.52, 0.44, 0.62] },
-      { label: 'Plastic Bottle', confidence: 0.93, box: [0.48, 0.60, 0.56, 0.67] },
-      { label: 'Vegetation Cluster', confidence: 0.79, box: [0.60, 0.65, 0.75, 0.79] },
+      { label: 'Debris', confidence: 0.88, box: [0.32, 0.52, 0.44, 0.62] },
+      { label: 'Debris', confidence: 0.93, box: [0.48, 0.60, 0.56, 0.67] },
+      { label: 'Debris', confidence: 0.79, box: [0.60, 0.65, 0.75, 0.79] },
     ],
     camera_id: CAMERAS[0].id,
     camera_name: CAMERAS[0].name,
@@ -125,7 +125,8 @@ export const App: React.FC = () => {
     location: string;
     occlusionRatio: number;
     status: string;
-    debrisTypes: string[];
+    debrisTypes?: string[];
+    debrisCount?: number;
     initialRadioTicket?: string | null;
     targetGroupId?: string;
   }>({
@@ -134,7 +135,8 @@ export const App: React.FC = () => {
     location: CAMERAS[0].location,
     occlusionRatio: 64.2,
     status: 'CRITICAL BLOCKED',
-    debrisTypes: ['Plastic Sacks', 'Vegetation Cluster', 'Plastic Bottles'],
+    debrisCount: 3,
+    debrisTypes: [],
     targetGroupId: 'grp-drainage',
   });
 
@@ -239,7 +241,8 @@ export const App: React.FC = () => {
       location: selectedCamera.location,
       occlusionRatio: telemetry.occlusion_ratio,
       status: telemetry.status,
-      debrisTypes: telemetry.detections.map((d) => d.label),
+      debrisCount: telemetry.trash_count ?? telemetry.detections.length,
+      debrisTypes: [],
       targetGroupId: (selectedCamera as any).target_group_id,
     });
     setIsRadioModalOpen(true);
@@ -253,6 +256,7 @@ export const App: React.FC = () => {
       location: inc.location,
       occlusionRatio: inc.occlusion_ratio,
       status: inc.status,
+      debrisCount: inc.debris_count,
       debrisTypes: inc.debris_types,
       initialRadioTicket: inc.radio_ticket,
     });
@@ -674,7 +678,7 @@ export const App: React.FC = () => {
 
               {/* Detected Trash Card */}
               <Container className="sm:col-span-2 xl:col-span-1">
-                <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start justify-between gap-2 mb-2">
                   <ContainerHeader title="Detected Trash" />
                   <span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.7rem] font-semibold bg-gray-100 text-gray-600 border-gray-300 dark:bg-white/10 dark:text-slate-300 dark:border-white/10">
                     <span className="uppercase tracking-wide">
@@ -683,28 +687,30 @@ export const App: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-1.5 max-h-[175px] overflow-y-auto pr-1">
                   {telemetry.detections.length === 0 ? (
                     <p className="text-xs text-slate-500 dark:text-slate-400 py-2">
                       No blocking trash detected in camera area.
                     </p>
                   ) : (
-                    telemetry.detections.map((det, idx) => (
-                      <div
-                        key={idx}
-                        className="p-2.5 rounded-xl bg-white/40 dark:bg-white/[0.02] border border-gray-200/50 dark:border-white/10 flex items-center justify-between text-xs"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-rose-400" />
-                          <span className="font-medium text-slate-800 dark:text-slate-200">
-                            {det.label}
+                    [...telemetry.detections]
+                      .sort((a, b) => b.confidence - a.confidence)
+                      .map((det, idx) => (
+                        <div
+                          key={idx}
+                          className="p-2 rounded-xl bg-white/40 dark:bg-white/[0.02] border border-gray-200/50 dark:border-white/10 flex items-center justify-between text-xs"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-2 h-2 rounded-full bg-rose-400 shrink-0" />
+                            <span className="font-medium text-slate-800 dark:text-slate-200 truncate capitalize">
+                              {det.label || det.class_name || 'Debris'}
+                            </span>
+                          </div>
+                          <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[0.65rem] font-semibold font-mono bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800 shrink-0">
+                            {(det.confidence * 100).toFixed(0)}%
                           </span>
                         </div>
-                        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[0.65rem] font-semibold font-mono bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800">
-                          {(det.confidence * 100).toFixed(0)}%
-                        </span>
-                      </div>
-                    ))
+                      ))
                   )}
                 </div>
               </Container>

@@ -285,17 +285,15 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
                     </div>
                   </div>
 
-                  {/* Debris pills */}
-                  {incident.debris_types && incident.debris_types.length > 0 && (
+                  {/* Debris indicator */}
+                  {((typeof incident.debris_count === 'number' && incident.debris_count > 0) ||
+                    (incident.status && incident.status !== 'CLEAR')) && (
                     <div className="flex flex-wrap gap-1.5 mt-2.5">
-                      {incident.debris_types.map((deb, idx) => (
-                        <span
-                          key={idx}
-                          className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium"
-                        >
-                          {deb}
-                        </span>
-                      ))}
+                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium">
+                        {typeof incident.debris_count === 'number' && incident.debris_count > 0
+                          ? `${incident.debris_count} Detected Debris`
+                          : 'Debris Obstruction'}
+                      </span>
                     </div>
                   )}
 

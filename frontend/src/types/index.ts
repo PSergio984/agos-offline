@@ -11,7 +11,9 @@ export type OcclusionStatus = 'CLEAR' | 'WARNING' | 'CRITICAL' | 'CRITICAL BLOCK
 
 export interface Detection {
   id?: string;
-  label: string;
+  label?: string;
+  class_name?: string;
+  class_id?: number;
   confidence: number;
   box: [number, number, number, number]; // [x_min, y_min, x_max, y_max] normalized 0..1
 }
@@ -54,7 +56,8 @@ export interface Incident {
   location: string;
   occlusion_ratio: number;
   status: OcclusionStatus;
-  debris_types: string[];
+  debris_types?: string[];
+  debris_count?: number;
   snapshot_url?: string;
   action_taken?: 'PENDING' | 'DISPATCHED' | 'RESOLVED' | 'CLEARED';
   dispatched_at?: string;
@@ -141,7 +144,7 @@ export interface ResponderGroup {
 
 export interface NotificationTemplate {
   id: string;
-  type: 'blockage' | 'warning' | 'critical' | 'announcement' | string;
+  type: 'blockage' | 'warning' | 'critical' | 'announcement' | 'maintenance' | 'clear' | string;
   title: string;
   message: string;
   created_at?: string;

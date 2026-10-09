@@ -14,7 +14,8 @@ describe('ReadingDetailModal Component', () => {
     camera_name: 'CAM-01: Rizal Culvert',
     location: 'Rizal Avenue Culvert',
     resolved: false,
-    debris_types: ['Plastic Bottles', 'Tree Branches'],
+    debris_count: 2,
+    debris_types: [],
     thumbnail_url: 'https://example.com/thumb.jpg',
   };
 
@@ -48,12 +49,26 @@ describe('ReadingDetailModal Component', () => {
     expect(screen.getByText('42.5%')).toBeInTheDocument();
     expect(screen.getByText(/Camera/i)).toBeInTheDocument();
     expect(screen.getAllByText(/CAM-01: Rizal Culvert/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText(/Detected/i)).toBeInTheDocument();
+    expect(screen.getByText('Detected')).toBeInTheDocument();
     expect(screen.getAllByText(/Recorded/i).length).toBeGreaterThanOrEqual(1);
 
-    // Debris badges
-    expect(screen.getByText('Plastic Bottles')).toBeInTheDocument();
-    expect(screen.getByText('Tree Branches')).toBeInTheDocument();
+    // Debris indicator
+    expect(screen.getByText('2 Detected Debris')).toBeInTheDocument();
+  });
+
+  it('renders generic Debris Obstruction badge when debris_count is omitted', () => {
+    const incidentWithoutCount: IncidentRecord = {
+      ...mockIncident,
+      debris_count: undefined,
+    };
+    render(
+      <ReadingDetailModal
+        incident={incidentWithoutCount}
+        isOpen={true}
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByText('Debris Obstruction')).toBeInTheDocument();
   });
 
   it('triggers onResolve callback when Mark as Resolved button is clicked', () => {

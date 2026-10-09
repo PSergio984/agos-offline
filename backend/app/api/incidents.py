@@ -1,4 +1,5 @@
 import uuid
+from enum import IntEnum
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends
@@ -8,6 +9,49 @@ import aiosqlite
 from app.core.database import SQL_SELECT_INCIDENTS, get_db, serialize_incident
 
 router = APIRouter()
+
+
+class DispatchStatus(IntEnum):
+    PENDING = 0
+    SENT = 1
+    RESOLVED = 2
+
+
+DISPATCH_PENDING = DispatchStatus.PENDING.value
+DISPATCH_SENT = DispatchStatus.SENT.value
+DISPATCH_RESOLVED = DispatchStatus.RESOLVED.value
+
+
+def generate_radio_ticket() -> str:
+    """Generate a concise, standardized radio dispatch ticket identifier.
+
+    Format: RAD-XXXXXX (e.g. RAD-A1B2C3).
+    This concise ID is referenced across voice radio broadcasts, SMS alerts,
+    and offline audit trails.
+    """
+    return f"RAD-{uuid.uuid4().hex[:6].upper()}"
+
+
+def format_radio_script(
+    radio_ticket: str,
+    unit_name: str = "Response Team",
+    location: str = "Monitored Zone",
+    occlusion_ratio: float = 0.0,
+    status: str = "WARNING",
+) -> str:
+    """Generate the standardized verbal radio call script for dispatch communication.
+
+    Voice radio operators read this concise structured script:
+    'Command to {unit_name}: Dispatch ticket {radio_ticket}. Drainage obstruction
+    detected at {location}. Blockage level: {occlusion_ratio:.1f}%, Status {status}.
+    Immediate clearing required. Over.'
+    """
+    return (
+        f"Command to {unit_name}: Dispatch ticket {radio_ticket}. "
+        f"Drainage obstruction detected at {location}. "
+        f"Blockage level: {occlusion_ratio:.1f}%, Status {status}. "
+        f"Immediate clearing required. Over."
+    )
 
 
 class IncidentCreateRequest(BaseModel):
@@ -44,7 +88,7 @@ async def list_incidents(
 
     cursor = await db.execute(query, tuple(params))
     rows = await cursor.fetchall()
-    
+
     result = []
     for r in rows:
         result.append(serialize_incident(r))
@@ -66,7 +110,7 @@ async def get_incident_dispatch_status(
     # Check notification dispatches for linked SMS
     cursor = await db.execute(
         """
-        SELECT nd.*, rg.name as target_group_name 
+        SELECT nd.*, rg.name as target_group_name
         FROM notification_dispatches nd
         LEFT JOIN responder_groups rg ON nd.target_group_id = rg.id
         WHERE nd.incident_id = ? OR (nd.radio_ticket = ? AND nd.radio_ticket IS NOT NULL AND nd.radio_ticket != '')
@@ -80,7 +124,7 @@ async def get_incident_dispatch_status(
     return {
         "incident_id": incident_id,
         "radio_ticket": inc.get("radio_ticket"),
-        "radio_dispatched": inc.get("synced") == 1 or inc.get("synced") == 2,
+        "radio_dispatched": inc.get("synced") in (DISPATCH_SENT, DISPATCH_RESOLVED),
         "radio_dispatched_at": inc.get("radio_dispatched_at"),
         "sms_dispatched": sms_details is not None and sms_details.get("status") in ("DISPATCHED", "SENT"),
         "sms_details": sms_details,
@@ -95,17 +139,17 @@ async def create_incident(
     """Log an incident to SQLite."""
     incident_id = f"inc-{uuid.uuid4().hex[:8]}"
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+
     await db.execute("""
         INSERT INTO incidents (
             id, camera_id, timestamp, occlusion_ratio, status,
             image_path, debris_count, radio_ticket, synced, source_type, is_open
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'manual', 0)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', 0)
     """, (
         incident_id, req.camera_id, now, req.occlusion_ratio, req.status,
-        req.image_path, req.debris_count, req.radio_ticket
+        req.image_path, req.debris_count, req.radio_ticket, DISPATCH_PENDING
     ))
-    
+
     # Also queue to sync_queue
     payload = {
         "id": incident_id,
@@ -122,9 +166,9 @@ async def create_incident(
         INSERT INTO sync_queue (id, entity_type, entity_id, payload, status)
         VALUES (?, 'incident', ?, ?, 'PENDING')
     """, (f"sync-{uuid.uuid4().hex[:8]}", incident_id, json.dumps(payload)))
-    
+
     await db.commit()
-    
+
     cursor = await db.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,))
     row = await cursor.fetchone()
     return dict(row) if row else {"id": incident_id}
@@ -143,17 +187,37 @@ async def dispatch_incident(
         raise HTTPException(status_code=404, detail="Incident not found")
     inc = dict(row)
 
-    # Determine ticket ID
+    # Determine concise ticket ID
     ticket = (req.radio_ticket if (req and req.radio_ticket) else None) or inc.get("radio_ticket")
     if not ticket or ticket.startswith("Command to"):
-        ticket = f"RAD-{uuid.uuid4().hex[:6].upper()}"
+        ticket = generate_radio_ticket()
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    cam_cursor = await db.execute("SELECT location, name FROM cameras WHERE id = ?", (inc["camera_id"],))
+    cam_row = await cam_cursor.fetchone()
+    cam_loc = (cam_row[0] if cam_row and cam_row[0] else (cam_row[1] if cam_row else inc["camera_id"]))
+    cam_name = (cam_row[1] if cam_row and cam_row[1] else cam_loc)
+
+    unit_name = "Response Team"
+    if req and req.assigned_group_id:
+        grp_cursor = await db.execute("SELECT name FROM responder_groups WHERE id = ?", (req.assigned_group_id,))
+        grp_row = await grp_cursor.fetchone()
+        if grp_row and grp_row[0]:
+            unit_name = grp_row[0]
+
+    call_script = format_radio_script(
+        radio_ticket=ticket,
+        unit_name=unit_name,
+        location=cam_name,
+        occlusion_ratio=float(inc.get("occlusion_ratio", 0.0)),
+        status=inc.get("status", "WARNING"),
+    )
 
     # Check if SMS already exists for this incident or ticket
     cursor = await db.execute(
         """
-        SELECT nd.*, rg.name as target_group_name 
+        SELECT nd.*, rg.name as target_group_name
         FROM notification_dispatches nd
         LEFT JOIN responder_groups rg ON nd.target_group_id = rg.id
         WHERE nd.incident_id = ? OR (nd.radio_ticket = ? AND nd.radio_ticket IS NOT NULL AND nd.radio_ticket != '')
@@ -162,7 +226,7 @@ async def dispatch_incident(
         (incident_id, ticket)
     )
     nd_row = await cursor.fetchone()
-    
+
     sms_already_sent = False
     sms_status = "SKIPPED"
     sms_details = None
@@ -175,10 +239,6 @@ async def dispatch_incident(
         # Operator requested SMS dispatch because none was sent yet
         from app.services.sms_service import sms_service
         try:
-            cam_cursor = await db.execute("SELECT location, name FROM cameras WHERE id = ?", (inc["camera_id"],))
-            cam_row = await cam_cursor.fetchone()
-            cam_loc = (cam_row[0] if cam_row and cam_row[0] else (cam_row[1] if cam_row else inc["camera_id"]))
-            
             sms_res = await sms_service.dispatch_incident_alert_async(
                 camera_id=inc["camera_id"],
                 location=cam_loc,
@@ -191,20 +251,21 @@ async def dispatch_incident(
         except Exception:
             sms_status = "FAILED"
 
-    # Update incident in SQLite: preserve RESOLVED status (synced=2) if already resolved
+    # Update incident in SQLite: preserve RESOLVED status (DISPATCH_RESOLVED) if already resolved
     await db.execute("""
-        UPDATE incidents 
-        SET synced = CASE WHEN synced = 2 THEN 2 ELSE 1 END,
+        UPDATE incidents
+        SET synced = CASE WHEN synced = ? THEN ? ELSE ? END,
             radio_ticket = ?,
             radio_dispatched_at = COALESCE(radio_dispatched_at, ?)
         WHERE id = ?
-    """, (ticket, now_str, incident_id))
+    """, (DISPATCH_RESOLVED, DISPATCH_RESOLVED, DISPATCH_SENT, ticket, now_str, incident_id))
     await db.commit()
 
     return {
         "status": "success",
         "incident_id": incident_id,
         "radio_ticket": ticket,
+        "call_script": call_script,
         "channel": req.channel if req else None,
         "assigned_group_id": req.assigned_group_id if req else None,
         "radio_dispatched": True,
@@ -226,12 +287,11 @@ async def resolve_incident(
     row = await cursor.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Incident not found")
-        
+
     await db.execute("""
-        UPDATE incidents 
-        SET synced = 2 
+        UPDATE incidents
+        SET synced = ?
         WHERE id = ?
-    """, (incident_id,))
+    """, (DISPATCH_RESOLVED, incident_id))
     await db.commit()
     return {"status": "success", "message": f"Incident {incident_id} marked as resolved"}
-

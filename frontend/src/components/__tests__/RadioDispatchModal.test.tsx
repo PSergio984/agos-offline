@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { RadioDispatchModal } from '../RadioDispatchModal';
+import { RadioDispatchModal, generateFallbackTicketId } from '../RadioDispatchModal';
 
 const baseProps = {
   isOpen: true,
@@ -32,6 +32,11 @@ describe('RadioDispatchModal rain hazard', () => {
     render(<RadioDispatchModal {...baseProps} initialRadioTicket="RAD-ALPHA1" />);
     expect(screen.getAllByText(/Ticket RAD-ALPHA1/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Dispatch ticket RAD-ALPHA1/i)).toBeInTheDocument();
+  });
+
+  it('generates fallback ticket IDs with RAD- prefix', () => {
+    const id = generateFallbackTicketId();
+    expect(id).toMatch(/^RAD-[A-Z0-9]+$/);
   });
 });
 

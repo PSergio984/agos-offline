@@ -11,25 +11,18 @@ interface StreamSelectorProps {
 
 const PRESET_SOURCES: StreamSource[] = [
   {
-    id: 'demo-mp4',
+    id: 'real-validation-demo',
     type: 'demo',
-    name: 'Demo Video (MP4 Loop)',
-    description: 'sample_media/drainage_demo.mp4',
-    url: 'sample_media/drainage_demo.mp4',
-  },
-  {
-    id: 'real-demo',
-    type: 'demo',
-    name: 'Real Demo (Licensed Photos)',
-    description: 'sample_media/real_demo.mp4 (empty, filling, blocked, cleared)',
-    url: 'sample_media/real_demo.mp4',
-  },
-  {
-    id: 'jionco-val-demo',
-    type: 'demo',
-    name: 'Jionco Validation Set',
-    description: 'sample_media/jionco_val_demo.mp4 (150 held-out real images)',
+    name: 'Real Demo (Validation Set)',
+    description: 'sample_media/jionco_val_demo.mp4 (150 real-world images)',
     url: 'sample_media/jionco_val_demo.mp4',
+  },
+  {
+    id: 'miniature-rain-demo',
+    type: 'demo',
+    name: 'Real Demo (Miniature Rain)',
+    description: 'sample_media/miniature_rain_demo.mp4 (50 wet conditions images)',
+    url: 'sample_media/miniature_rain_demo.mp4',
   },
   {
     id: 'usb-webcam',

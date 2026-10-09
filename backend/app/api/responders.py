@@ -45,11 +45,13 @@ class ResponderUpdateRequest(BaseModel):
 class ResponderGroupCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field("", max_length=500)
+    member_ids: Optional[List[str]] = Field(default_factory=list)
 
 
 class ResponderGroupUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
+    member_ids: Optional[List[str]] = None
 
 
 def serialize_responder(row: Any, group_ids: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -61,6 +63,46 @@ def serialize_responder(row: Any, group_ids: Optional[List[str]] = None) -> Dict
         d["notif_preferences"] = {}
     d["group_ids"] = group_ids if group_ids is not None else []
     return d
+
+
+def serialize_responder_group(row: Any, member_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    d = dict(row)
+    members = member_ids if member_ids is not None else []
+    d["member_ids"] = members
+    d["member_count"] = len(members)
+    return d
+
+
+async def _get_group_member_ids(db: aiosqlite.Connection, group_id: str) -> List[str]:
+    """Retrieve all responder IDs currently assigned to a responder group."""
+    cursor = await db.execute(
+        "SELECT responder_id FROM responder_group_members WHERE group_id = ?",
+        (group_id,),
+    )
+    rows = await cursor.fetchall()
+    return [m["responder_id"] for m in rows]
+
+
+async def _set_group_members(db: aiosqlite.Connection, group_id: str, member_ids: List[str]) -> None:
+    """Set the responder members for a group, validating responder existence."""
+    await db.execute("DELETE FROM responder_group_members WHERE group_id = ?", (group_id,))
+    for rid in set(member_ids):
+        r_check = await db.execute("SELECT id FROM responders WHERE id = ?", (rid,))
+        if await r_check.fetchone():
+            await db.execute(
+                "INSERT OR IGNORE INTO responder_group_members (responder_id, group_id) VALUES (?, ?)",
+                (rid, group_id),
+            )
+
+
+async def _get_responder_group_ids(db: aiosqlite.Connection, responder_id: str) -> List[str]:
+    """Retrieve all group IDs assigned to a specific responder."""
+    cursor = await db.execute(
+        "SELECT group_id FROM responder_group_members WHERE responder_id = ?",
+        (responder_id,),
+    )
+    rows = await cursor.fetchall()
+    return [m["group_id"] for m in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -104,13 +146,7 @@ async def list_responders(
 
     result = []
     for r in rows:
-        rid = r["id"]
-        m_cursor = await db.execute(
-            "SELECT group_id FROM responder_group_members WHERE responder_id = ?",
-            (rid,),
-        )
-        m_rows = await m_cursor.fetchall()
-        group_ids = [m["group_id"] for m in m_rows]
+        group_ids = await _get_responder_group_ids(db, r["id"])
         result.append(serialize_responder(r, group_ids))
 
     return result
@@ -233,14 +269,7 @@ async def update_responder(
 
     cursor = await db.execute("SELECT * FROM responders WHERE id = ?", (responder_id,))
     updated_row = await cursor.fetchone()
-
-    m_cursor = await db.execute(
-        "SELECT group_id FROM responder_group_members WHERE responder_id = ?",
-        (responder_id,),
-    )
-    m_rows = await m_cursor.fetchall()
-    group_ids = [m["group_id"] for m in m_rows]
-
+    group_ids = await _get_responder_group_ids(db, responder_id)
     return serialize_responder(updated_row, group_ids)
 
 
@@ -268,21 +297,14 @@ async def delete_responder(
 
 @router.get("/responder-groups", response_model=List[Dict[str, Any]])
 async def list_responder_groups(db: aiosqlite.Connection = Depends(get_db)):
-    """List all responder groups with active member count."""
+    """List all responder groups with active member count and member IDs."""
     cursor = await db.execute("SELECT * FROM responder_groups ORDER BY created_at ASC")
     rows = await cursor.fetchall()
 
     result = []
     for r in rows:
-        gid = r["id"]
-        c_cursor = await db.execute(
-            "SELECT COUNT(*) AS count FROM responder_group_members WHERE group_id = ?",
-            (gid,),
-        )
-        c_row = await c_cursor.fetchone()
-        g_dict = dict(r)
-        g_dict["member_count"] = c_row["count"] if c_row else 0
-        result.append(g_dict)
+        member_ids = await _get_group_member_ids(db, r["id"])
+        result.append(serialize_responder_group(r, member_ids))
 
     return result
 
@@ -292,20 +314,23 @@ async def create_responder_group(
     payload: ResponderGroupCreateRequest,
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    """Create a new responder group."""
+    """Create a new responder group with optional initial member assignments."""
     new_id = f"grp-{uuid.uuid4().hex[:8]}"
 
     await db.execute(
         "INSERT INTO responder_groups (id, name, description) VALUES (?, ?, ?)",
         (new_id, payload.name, payload.description or ""),
     )
+
+    if payload.member_ids:
+        await _set_group_members(db, new_id, payload.member_ids)
+
     await db.commit()
 
     cursor = await db.execute("SELECT * FROM responder_groups WHERE id = ?", (new_id,))
     row = await cursor.fetchone()
-    g_dict = dict(row)
-    g_dict["member_count"] = 0
-    return g_dict
+    member_ids = await _get_group_member_ids(db, new_id)
+    return serialize_responder_group(row, member_ids)
 
 
 @router.put("/responder-groups/{group_id}", response_model=Dict[str, Any])
@@ -314,7 +339,7 @@ async def update_responder_group(
     payload: ResponderGroupUpdateRequest,
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    """Update responder group name or description."""
+    """Update responder group name, description, and member roster."""
     cursor = await db.execute("SELECT * FROM responder_groups WHERE id = ?", (group_id,))
     existing = await cursor.fetchone()
     if not existing:
@@ -339,19 +364,16 @@ async def update_responder_group(
             f"UPDATE responder_groups SET {', '.join(updates)} WHERE id = ?",
             tuple(params),
         )
-        await db.commit()
+
+    if payload.member_ids is not None:
+        await _set_group_members(db, group_id, payload.member_ids)
+
+    await db.commit()
 
     cursor = await db.execute("SELECT * FROM responder_groups WHERE id = ?", (group_id,))
     updated_row = await cursor.fetchone()
-
-    c_cursor = await db.execute(
-        "SELECT COUNT(*) AS count FROM responder_group_members WHERE group_id = ?",
-        (group_id,),
-    )
-    c_row = await c_cursor.fetchone()
-    g_dict = dict(updated_row)
-    g_dict["member_count"] = c_row["count"] if c_row else 0
-    return g_dict
+    member_ids = await _get_group_member_ids(db, group_id)
+    return serialize_responder_group(updated_row, member_ids)
 
 
 @router.delete("/responder-groups/{group_id}", status_code=status.HTTP_200_OK)

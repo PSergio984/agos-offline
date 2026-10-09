@@ -224,16 +224,15 @@ export const ReadingDetailModal: React.FC<ReadingDetailModalProps> = ({
                 <p className="text-xs text-slate-400 max-w-sm mt-1">
                   Culvert drainage surveillance capture recorded at {incident.location}.
                 </p>
-                {incident.debris_types && incident.debris_types.length > 0 && (
+                {((typeof incident.debris_count === 'number' && incident.debris_count > 0) ||
+                  statusKey !== 'clear' ||
+                  incident.occlusion_ratio > 0) && (
                   <div className="flex flex-wrap gap-1.5 justify-center mt-3 max-w-md">
-                    {incident.debris_types.map((debris, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2.5 py-1 text-[11px] rounded-lg bg-slate-800/80 border border-slate-700 text-teal-300 font-mono"
-                      >
-                        {debris}
-                      </span>
-                    ))}
+                    <span className="px-2.5 py-1 text-[11px] rounded-lg bg-slate-800/80 border border-slate-700 text-teal-300 font-mono">
+                      {typeof incident.debris_count === 'number' && incident.debris_count > 0
+                        ? `${incident.debris_count} Detected Debris`
+                        : 'Debris Obstruction'}
+                    </span>
                   </div>
                 )}
               </div>

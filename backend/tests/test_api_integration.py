@@ -215,13 +215,30 @@ def test_responders_and_groups_crud(client: TestClient):
     assert updated_resp["location"] == "Central EOC Headquarters"
     assert updated_resp["notif_preferences"]["warning"] is False
 
-    # 6. Update group details
+    # 6. Update group details and member roster directly
     update_grp_res = client.put(
         f"/api/v1/responder-groups/{grp_id}",
-        json={"name": "Renamed Rapid Unit", "description": "Updated description"},
+        json={
+            "name": "Renamed Rapid Unit",
+            "description": "Updated description",
+            "member_ids": [],
+        },
     )
     assert update_grp_res.status_code == 200
     assert update_grp_res.json()["name"] == "Renamed Rapid Unit"
+    assert update_grp_res.json()["member_count"] == 0
+    assert update_grp_res.json()["member_ids"] == []
+
+    # Assign member back via update_responder_group
+    readd_grp_res = client.put(
+        f"/api/v1/responder-groups/{grp_id}",
+        json={
+            "member_ids": [resp_id],
+        },
+    )
+    assert readd_grp_res.status_code == 200
+    assert readd_grp_res.json()["member_count"] == 1
+    assert readd_grp_res.json()["member_ids"] == [resp_id]
 
     # 7. Delete responder
     del_resp_res = client.delete(f"/api/v1/responders/{resp_id}")
