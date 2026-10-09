@@ -130,7 +130,9 @@ class SyncService:
                         "apikey": settings.SUPABASE_KEY,
                         "Authorization": f"Bearer {settings.SUPABASE_KEY}",
                         "Content-Type": "application/json",
-                        "Prefer": "return=minimal",
+                        # Upsert on the primary key: a Warning incident that was upgraded to Critical
+                        # is queued again under the same id and must replace the delivered row
+                        "Prefer": "resolution=merge-duplicates,return=minimal",
                     }
                     endpoint = f"{settings.SUPABASE_URL.rstrip('/')}/rest/v1/drainage_incidents"
                     async with httpx.AsyncClient(timeout=5.0) as client:

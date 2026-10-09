@@ -7,14 +7,16 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.core.database import init_db
+from app.main import app
 from app.ml.occlusion import OcclusionStatus, TemporalOcclusionFilter
 from app.services.cadence import CadenceController
-from app.services.stream_service import stream_service
+from app.services.stream_service import StreamService, stream_service
 from app.services.sync_service import sync_service
 from app.services.weather_service import weather_service
 
@@ -737,3 +739,125 @@ def test_hazard_never_changes_cadence_status_or_incident(client: TestClient, box
     assert status["interval_seconds"] == 0.4  # burst cadence, identical with hazard on or off
     assert update["blockage_status"] == "blocked"
     assert len([i for i in client.get("/api/v1/incidents").json() if i["is_open"] == 1]) == 1
+
+
+# --- Warning detections are logged with their boxed image ---
+
+
+class _Clock:
+    def __init__(self):
+        self.now = 1_700_000_000.0
+
+    def __call__(self):
+        return self.now
+
+
+class _LogDriver:
+    """A private StreamService on its own camera, so the app's singleton stream cannot interfere."""
+
+    def __init__(self, camera_id="cam-log-test"):
+        self.clock = _Clock()
+        self.service = StreamService(clock=self.clock)
+        self.service._camera_id = camera_id
+        self.box = PARTIAL_BOX
+        self.service._inference_engine.infer = lambda frame: [_Detection(self.box)]
+
+    def step(self, seconds, box):
+        self.clock.now += seconds
+        self.box = box
+        self.service._run_inference_if_due(np.zeros((480, 640, 3), dtype=np.uint8))
+
+
+@pytest.fixture
+def served_storage(test_storage_dir, monkeypatch):
+    """Point the app's /storage static mount at the temp storage root used by the stream service."""
+    mount = next(r for r in app.routes if getattr(r, "path", None) == "/storage")
+    monkeypatch.setattr(mount.app, "directory", test_storage_dir.parent)
+    monkeypatch.setattr(mount.app, "all_directories", [test_storage_dir.parent])
+    return test_storage_dir
+
+
+def _logged(client: TestClient, camera_id="cam-log-test"):
+    return [i for i in client.get("/api/v1/incidents").json() if i["camera_id"] == camera_id]
+
+
+def test_warning_incident_is_listed_with_a_servable_cache_safe_image(client: TestClient, served_storage):
+    driver = _LogDriver()
+    driver.step(1, PARTIAL_BOX)
+    driver.step(3, PARTIAL_BOX)
+
+    incidents = _logged(client)
+    assert len(incidents) == 1
+    inc = incidents[0]
+    assert inc["status"] == "WARNING"
+    assert inc["is_open"] == 1
+    base, _, version = inc["snapshot_url"].partition("?v=")
+    assert base == f"/storage/incidents/{inc['id']}.jpg"
+    assert version.isdigit()
+
+    res = client.get(inc["snapshot_url"])
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "image/jpeg"
+    assert res.content[:2] == b"\xff\xd8"
+
+    # A new coverage peak rewrites the image and changes the URL, so the browser cannot show a stale copy
+    driver.step(3, [0.0, 0.0, 640.0 * 0.55, 480.0])
+    refreshed = _logged(client)[0]
+    assert refreshed["snapshot_url"] != inc["snapshot_url"]
+    assert client.get(refreshed["snapshot_url"]).content != res.content
+
+
+def test_missing_or_empty_image_paths_are_returned_unchanged(client: TestClient):
+    conn = _db()
+    try:
+        for inc_id, path in (("inc-missing-img", "/storage/incidents/test.jpg"), ("inc-no-img", "")):
+            conn.execute(
+                "INSERT INTO incidents (id, camera_id, timestamp, occlusion_ratio, status, image_path, debris_count) "
+                "VALUES (?, 'cam-default', '2026-01-01 00:00:00', 30.0, 'WARNING', ?, 1)",
+                (inc_id, path),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    urls = {i["id"]: i["snapshot_url"] for i in client.get("/api/v1/incidents").json()}
+    assert urls["inc-missing-img"] == "/storage/incidents/test.jpg"
+    assert urls["inc-no-img"] == ""
+
+
+def test_upgraded_incident_syncs_as_an_upsert_with_its_final_status(client: TestClient, online, monkeypatch):
+    monkeypatch.setattr(settings, "SUPABASE_URL", "https://example.invalid")
+    monkeypatch.setattr(settings, "SUPABASE_KEY", "key")
+    posts = []
+
+    class RecordingClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            posts.append({"payload": json, "prefer": headers["Prefer"]})
+            return _FakeResponse(201)
+
+    monkeypatch.setattr("app.services.sync_service.httpx.AsyncClient", RecordingClient)
+
+    driver = _LogDriver()
+    driver.step(1, PARTIAL_BOX)
+    driver.step(3, PARTIAL_BOX)
+    assert client.post("/api/v1/sync/flush").json()["synced_count"] == 1  # delivered as WARNING
+
+    driver.step(3, FULL_ROI_BOX)
+    driver.step(3, FULL_ROI_BOX)
+    assert _logged(client)[0]["status"] == "CRITICAL"
+    assert _logged(client)[0]["cloud_synced"] is False  # the cloud copy is stale until re-sent
+    assert client.post("/api/v1/sync/flush").json()["synced_count"] == 1
+
+    assert [p["payload"]["status"] for p in posts] == ["WARNING", "CRITICAL"]
+    assert len({p["payload"]["id"] for p in posts}) == 1
+    assert all("merge-duplicates" in p["prefer"] for p in posts)
+    assert _logged(client)[0]["cloud_synced"] is True
+    assert client.get("/api/v1/sync/status").json()["pending_count"] == 0

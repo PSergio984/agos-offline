@@ -3,6 +3,7 @@
 import json
 import sqlite3
 
+import cv2
 import numpy as np
 
 from app.core.config import settings
@@ -330,6 +331,213 @@ def test_incident_created_event_is_drained_once():
     assert events[0]["data"]["is_open"] == 1
     assert events[0]["data"]["action_taken"] == "PENDING"
     assert h.service.drain_events() == []
+
+
+WARNING_BAND = 0.3  # 30 percent of the ROI width: inside the WARNING band (20..59)
+
+
+def _stub_sms(monkeypatch, service):
+    """Record SMS triggers instead of sending. Mirrors the real trigger's throttle stamp."""
+    calls = []
+
+    def fake(conn, camera_id, occlusion_ratio, is_clear, now, incident_id=None, radio_ticket=None):
+        calls.append({"is_clear": is_clear, "incident_id": incident_id, "radio_ticket": radio_ticket})
+        service._last_alert_time[camera_id] = now
+
+    monkeypatch.setattr(service, "_trigger_incident_sms", fake)
+    return calls
+
+
+def _open_warning(h):
+    h.step(1, [_band_box(WARNING_BAND)])
+    h.step(3, [_band_box(WARNING_BAND)])
+
+
+def _upgrade_to_critical(h):
+    h.step(3, [FULL_ROI_BOX])
+    h.step(3, [FULL_ROI_BOX])
+    assert h.status == "CRITICAL"
+
+
+def _queue(incident_id):
+    conn = sqlite3.connect(str(settings.DATABASE_PATH))
+    try:
+        return [
+            (status, json.loads(payload))
+            for status, payload in conn.execute(
+                "SELECT status, payload FROM sync_queue WHERE entity_id = ? ORDER BY created_at, rowid",
+                (incident_id,),
+            )
+        ]
+    finally:
+        conn.close()
+
+
+def _image_file(incident_id):
+    return settings.STORAGE_DIR / f"{incident_id}.jpg"
+
+
+def test_confirmed_warning_opens_one_incident_with_boxed_image(monkeypatch):
+    h = Harness()
+    calls = _stub_sms(monkeypatch, h.service)
+    _open_warning(h)
+    assert h.status == "WARNING"
+
+    rows = _incidents()
+    assert len(rows) == 1
+    inc = rows[0]
+    assert inc["status"] == "WARNING"
+    assert inc["is_open"] == 1
+    assert inc["radio_ticket"]
+    assert inc["image_path"] == f"/storage/incidents/{inc['id']}.jpg"
+
+    image = cv2.imread(str(_image_file(inc["id"])))
+    assert image is not None and image.shape == (480, 640, 3)
+
+    queue = _queue(inc["id"])
+    assert [(s, p["status"]) for s, p in queue] == [("PENDING", "WARNING")]
+
+    events = [e for e in h.service.drain_events() if e["type"] == "incident_created"]
+    assert [e["data"]["status"] for e in events] == ["WARNING"]
+
+    # Critical-only actions stay quiet for a Warning-only incident, including its close
+    for _ in range(3):
+        h.step(3, [_band_box(WARNING_BAND)])
+    h.step(3, [])
+    h.step(3, [])
+    assert h.status == "CLEAR"
+    assert calls == []
+    closed = _incidents()
+    assert len(closed) == 1 and closed[0]["is_open"] == 0 and closed[0]["closed_at"]
+
+
+def test_warning_upgrades_in_place_to_critical_and_alerts_once(monkeypatch):
+    h = Harness()
+    calls = _stub_sms(monkeypatch, h.service)
+    _open_warning(h)
+    first = _incidents()[0]
+    warning_image = _image_file(first["id"]).read_bytes()
+    h.service.drain_events()
+
+    _upgrade_to_critical(h)
+    rows = _incidents()
+    assert len(rows) == 1
+    inc = rows[0]
+    assert inc["id"] == first["id"]
+    assert inc["status"] == "CRITICAL"
+    assert inc["is_open"] == 1
+    assert inc["occlusion_ratio"] > first["occlusion_ratio"]
+    # identity, dispatch state and image name belong to the first moment
+    for key in ("radio_ticket", "synced", "image_path", "timestamp"):
+        assert inc[key] == first[key]
+    # the image shows the Critical frame now
+    assert _image_file(inc["id"]).read_bytes() != warning_image
+
+    # one SMS alert for the whole incident, fired at the upgrade
+    assert calls == [{"is_clear": False, "incident_id": inc["id"], "radio_ticket": inc["radio_ticket"]}]
+    # the upgrade re-emits the same incident_created shape with the new status
+    events = [e for e in h.service.drain_events() if e["type"] == "incident_created"]
+    assert [e["data"]["status"] for e in events] == ["CRITICAL"]
+    assert events[0]["data"]["id"] == inc["id"]
+
+    # Sustained CRITICAL, and a dip back to WARNING, add no alerts and never downgrade the row
+    for _ in range(2):
+        h.step(3, [_band_box(0.4)])
+    assert h.status == "WARNING"
+    assert _incidents()[0]["status"] == "CRITICAL"
+    assert len(calls) == 1
+
+
+def test_critical_incident_closes_on_confirmed_clear_with_clear_sms(monkeypatch):
+    h = Harness()
+    calls = _stub_sms(monkeypatch, h.service)
+    _open_warning(h)
+    _upgrade_to_critical(h)
+
+    h.step(3, [])  # single clean reading is not a confirmed CLEAR
+    assert _incidents()[0]["is_open"] == 1
+    h.step(3, [])
+    assert h.status == "CLEAR"
+    closed = _incidents()[0]
+    assert closed["is_open"] == 0 and closed["closed_at"]
+    assert closed["status"] == "CRITICAL"
+    assert [c["is_clear"] for c in calls] == [False, True]
+
+    # a new obstruction after the close opens a second incident
+    h.step(3, [_band_box(WARNING_BAND)])
+    h.step(3, [_band_box(WARNING_BAND)])
+    assert sorted(r["is_open"] for r in _incidents()) == [0, 1]
+
+
+def test_direct_critical_still_alerts_once_and_keeps_image(monkeypatch):
+    h = Harness()
+    calls = _stub_sms(monkeypatch, h.service)
+    h.step(1, [FULL_ROI_BOX])
+    h.step(3, [FULL_ROI_BOX])
+    inc = _incidents()[0]
+    assert inc["status"] == "CRITICAL"
+    assert _image_file(inc["id"]).exists()
+    assert [c["is_clear"] for c in calls] == [False]
+
+
+def test_image_is_rewritten_only_at_a_new_coverage_peak():
+    h = Harness()
+    _open_warning(h)
+    incident_id = _incidents()[0]["id"]
+    path = _image_file(incident_id)
+    opened = path.read_bytes()
+
+    h.step(3, [_band_box(0.5)])  # smoothed coverage rises: new peak
+    risen = path.read_bytes()
+    assert risen != opened
+    assert _incidents()[0]["status"] == "WARNING"
+
+    stamp = path.stat().st_mtime_ns
+    for side in (0.25, 0.25, 0.5):  # smoothed 35.0, 33.3, 33.3: below the 36.67 peak
+        h.step(3, [_band_box(side)])
+        assert path.read_bytes() == risen
+        assert path.stat().st_mtime_ns == stamp
+
+    h.step(3, [_band_box(0.5)])  # smoothed 41.67: new peak
+    assert path.read_bytes() != risen
+    assert [r["id"] for r in _incidents()] == [incident_id]
+
+
+def test_upgrade_updates_pending_queue_row_in_place():
+    h = Harness()
+    _open_warning(h)
+    incident_id = _incidents()[0]["id"]
+    _upgrade_to_critical(h)
+
+    queue = _queue(incident_id)
+    assert len(queue) == 1
+    status, payload = queue[0]
+    assert status == "PENDING"
+    assert payload["status"] == "CRITICAL"
+    assert set(payload) == {
+        "id", "camera_id", "timestamp", "occlusion_ratio", "status",
+        "debris_count", "image_path", "radio_ticket",
+    }
+
+
+def test_upgrade_after_delivery_queues_an_update_for_the_cloud_upsert():
+    h = Harness()
+    _open_warning(h)
+    incident_id = _incidents()[0]["id"]
+
+    # Simulate the sync service delivering the WARNING version
+    conn = sqlite3.connect(str(settings.DATABASE_PATH))
+    conn.execute("UPDATE sync_queue SET status = 'SYNCED' WHERE entity_id = ?", (incident_id,))
+    conn.execute("UPDATE incidents SET cloud_synced = 1 WHERE id = ?", (incident_id,))
+    conn.commit()
+    conn.close()
+
+    _upgrade_to_critical(h)
+    queue = _queue(incident_id)
+    assert [(s, p["status"]) for s, p in queue] == [("SYNCED", "WARNING"), ("PENDING", "CRITICAL")]
+    assert set(queue[1][1]) == set(queue[0][1])
+    assert queue[1][1]["occlusion_ratio"] == _incidents()[0]["occlusion_ratio"]
+    assert _incidents()[0]["cloud_synced"] == 0
 
 
 def test_fixed_interval_when_adaptive_disabled(monkeypatch):

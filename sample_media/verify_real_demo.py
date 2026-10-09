@@ -1,7 +1,8 @@
 """Replay sample_media/real_demo.mp4 through StreamService with a fake clock and the REAL best.onnx.
 
 Checks the CLEAR -> burst -> CRITICAL -> settled -> cleared cycle with exactly one incident that
-closes, and writes .agents/tasks/demo-replay-report.md. No detections are faked.
+closes (it may open as WARNING while the pile fills and is upgraded in place to CRITICAL), and
+writes .agents/tasks/demo-replay-report.md. No detections are faked.
 """
 import argparse
 import asyncio
@@ -46,7 +47,7 @@ def incidents() -> list[dict]:
     conn = sqlite3.connect(str(settings.DATABASE_PATH))
     conn.row_factory = sqlite3.Row
     try:
-        return [dict(r) for r in conn.execute("SELECT id, status, is_open, occlusion_ratio FROM incidents")]
+        return [dict(r) for r in conn.execute("SELECT id, status, is_open, occlusion_ratio, image_path FROM incidents")]
     finally:
         conn.close()
 
@@ -87,6 +88,7 @@ def main() -> int:
                 "raw_status": det["raw_status"], "status": det["status"], "interval": det["interval_seconds"],
                 "mode": service._cadence.mode.name, "boxes": det["debris_count"],
                 "incidents": len(inc), "open": sum(r["is_open"] for r in inc),
+                "inc_status": [r["status"] for r in inc],
             })
         i += 1
     cap.release()
@@ -112,21 +114,28 @@ def main() -> int:
     fill_start = in_stage("filling")[0]
     burst = [r for r in filling if r["interval"] == 3.0]
     ok = bool(burst)
-    results["filling"] = (ok, f"burst (3 s) first at t={burst[0]['t'] if burst else None}, filling starts t={fill_start}")
+    warn_open = next((r for r in filling if r["incidents"] > 0), None)  # a WARNING incident here is allowed
+    results["filling"] = (ok, f"burst (3 s) first at t={burst[0]['t'] if burst else None}, filling starts t={fill_start}, "
+                              f"incident during filling: "
+                              f"{('%s at t=%s' % (warn_open['inc_status'], warn_open['t'])) if warn_open else 'none'}")
 
     blocked = rng("blocked")
     crit = [r for r in blocked if r["status"] == "CRITICAL"]
     settled = [r for r in blocked if r["mode"] == "SETTLED"]
     inc_blocked = max((r["incidents"] for r in blocked), default=0)
-    ok = bool(crit) and inc_blocked == 1 and any(r["open"] == 1 for r in crit) and bool(settled)
+    # Exactly one incident (the WARNING one from filling, upgraded in place, or one opened at CRITICAL),
+    # open and at CRITICAL once CRITICAL is confirmed
+    ok = (bool(crit) and inc_blocked == 1 and any(r["open"] == 1 for r in crit)
+          and all(r["inc_status"] == ["CRITICAL"] for r in crit) and bool(settled))
     results["blocked"] = (ok, f"CRITICAL confirmed at t={crit[0]['t'] if crit else None}, "
-                              f"incidents={inc_blocked}, settled(10 s) first at t={settled[0]['t'] if settled else None}, "
+                              f"incidents={inc_blocked}, incident status={crit[-1]['inc_status'] if crit else None}, "
+                              f"settled(10 s) first at t={settled[0]['t'] if settled else None}, "
                               f"max raw ratio={max((r['raw_ratio'] for r in blocked), default=0)}")
 
     cleared = rng("cleared")
     final = incidents()
     ok = (bool(cleared) and any(r["status"] == "CLEAR" for r in cleared) and len(final) == 1
-          and final[0]["is_open"] == 0 and cleared[-1]["status"] == "CLEAR")
+          and all(r["is_open"] == 0 for r in final) and cleared[-1]["status"] == "CLEAR")
     results["cleared"] = (ok, f"confirmed CLEAR first at t="
                               f"{next((r['t'] for r in cleared if r['status'] == 'CLEAR'), None)}, "
                               f"incidents={len(final)}, is_open={[r['is_open'] for r in final]}")
