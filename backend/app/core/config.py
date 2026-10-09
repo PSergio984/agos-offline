@@ -20,9 +20,9 @@ class Settings(BaseSettings):
     SAMPLE_MEDIA_DIR: Path = BASE_DIR / "sample_media"
     DEFAULT_SAMPLE_VIDEO: Path = BASE_DIR / "sample_media" / "drainage_demo.mp4"
     
-    # Thresholds (CLEAR < 25%, WARNING 25-59%, CRITICAL >= 60%)
-    CLEAR_THRESHOLD: float = 25.0
-    WARNING_THRESHOLD: float = 25.0
+    # Width-coverage thresholds (CLEAR < 20%, WARNING 20-59%, CRITICAL >= 60%)
+    CLEAR_THRESHOLD: float = 20.0
+    WARNING_THRESHOLD: float = 20.0
     CRITICAL_THRESHOLD: float = 60.0
     
     # YOLO parameters
@@ -46,8 +46,8 @@ class Settings(BaseSettings):
     BURST_CLEAN_INFERENCES_TO_EXIT: int = 3
     BURST_EXIT_COOLDOWN_SECONDS: float = 60.0
     
-    # Default Region of Interest [x_min, y_min, x_max, y_max] normalized 0..1
-    DEFAULT_ROI: List[float] = [0.20, 0.40, 0.80, 0.90]
+    # Default Region of Interest [x_min, y_min, x_max, y_max] normalized 0..1 (full frame)
+    DEFAULT_ROI: List[float] = [0.0, 0.0, 1.0, 1.0]
 
     # Server settings
     HOST: str = "0.0.0.0"

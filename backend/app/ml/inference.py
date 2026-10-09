@@ -23,8 +23,8 @@ DEFAULT_IOU_THRESHOLD = 0.50
 
 # Annotation BGR Color Palette
 COLOR_CYAN = (255, 255, 0)      # Default / Calibrating ROI
-COLOR_GREEN = (0, 255, 0)       # CLEAR status ROI (<25%)
-COLOR_YELLOW = (0, 255, 255)    # WARNING status ROI (25%-59%)
+COLOR_GREEN = (0, 255, 0)       # CLEAR status ROI (<20%)
+COLOR_YELLOW = (0, 255, 255)    # WARNING status ROI (20%-59%)
 COLOR_RED = (0, 0, 255)         # CRITICAL status ROI (>=60%) & Debris detections
 COLOR_WHITE = (255, 255, 255)
 COLOR_BLACK = (0, 0, 0)

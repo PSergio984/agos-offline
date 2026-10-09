@@ -38,7 +38,7 @@ const CAMERAS: CameraOption[] = [
     id: 'cam-01',
     name: 'CAM-01: Rizal Ave Culvert #4',
     location: 'Brgy. San Jose, Rizal Ave cor. Mabini St.',
-    defaultRoi: [0.20, 0.40, 0.80, 0.90],
+    defaultRoi: [0.0, 0.0, 1.0, 1.0],
   },
   {
     id: 'cam-02',
@@ -452,11 +452,11 @@ export const App: React.FC = () => {
                         }`}
                         style={{ width: `${Math.min(100, Math.max(0, telemetry.occlusion_ratio))}%` }}
                       />
-                      {/* 25% Warning Marker */}
+                      {/* 20% Warning Marker */}
                       <div
                         className="absolute top-0 bottom-0 w-0.5 bg-amber-400/80 z-10"
-                        style={{ left: '25%' }}
-                        title="Warning Threshold (25%)"
+                        style={{ left: '20%' }}
+                        title="Warning Threshold (20% coverage)"
                       />
                       {/* 60% Critical Marker */}
                       <div
@@ -469,7 +469,7 @@ export const App: React.FC = () => {
                     {/* Threshold Scale */}
                     <div className="flex justify-between text-[11px] text-slate-400 mt-2">
                       <span>0% Clear</span>
-                      <span className="text-amber-400 font-medium">25% Warning</span>
+                      <span className="text-amber-400 font-medium">20% Warning</span>
                       <span className="text-rose-400 font-medium">60% Critical</span>
                       <span>100%</span>
                     </div>

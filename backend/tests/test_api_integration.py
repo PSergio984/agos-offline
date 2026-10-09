@@ -362,8 +362,8 @@ MODEL_STATUS_FIELDS = {
     "sidecar_hash_match", "input_source", "is_synthetic", "last_inference_at", "last_inference_ms",
     "interval_seconds", "next_inference_in",
 }
-FULL_ROI_BOX = [128.0, 192.0, 512.0, 432.0]  # covers the default ROI at 640x480
-PARTIAL_BOX = [128.0, 192.0, 512.0, 192.0 + 240.0 * 0.4]  # 40 percent of the ROI height
+FULL_ROI_BOX = [0.0, 0.0, 640.0, 480.0]  # covers the full-frame default ROI at 640x480
+PARTIAL_BOX = [0.0, 0.0, 640.0 * 0.4, 480.0]  # 40 percent of the ROI width: WARNING band (20..59)
 
 
 class _Detection:

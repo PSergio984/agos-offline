@@ -21,7 +21,7 @@ When tropical storms knock down cellular towers, fiber backhauls, and cloud serv
 - **Direct CCTV / Video Ingestion:** Ingests live RTSP streams from LGU IP cameras, local MP4 video loops, or USB webcams via OpenCV.
 - **Local YOLOv8 ONNX Inference:** Runs on standard CPU or integrated GPU with zero cloud API latency or egress costs.
 - **Grate Region of Interest (ROI) Calibration:** Operators can adjust the drainage grate bounding box directly on the live UI canvas.
-- **Occlusion Ratio & Temporal Smoothing:** Quantifies trash coverage percentage ($<25\%$ Clear, $25-60\%$ Warning, $\ge 60\%$ Critical Blocked) with a 2-of-3 frame smoothing window to reject false positives.
+- **Occlusion Ratio & Temporal Smoothing:** Quantifies trash width coverage of the ROI ($<20\%$ Clear, $20-59\%$ Warning, $\ge 60\%$ Critical Blocked) with a 2-of-3 frame smoothing window to reject false positives.
 - **Audible Emergency Siren & Visual Banners:** Immediate local operator notification via Web Audio API.
 - **VHF/UHF Radio Dispatch Tickets:** Auto-generates standard voice radio scripts for command center dispatchers to alert mobile patrol units and barangay tanods.
 - **Embedded SQLite & Local Storage:** Stores incident snapshots and logs locally on disk (`agos.db`) with an optional store-and-forward queue for Supabase cloud sync when connectivity is restored.

@@ -13,13 +13,13 @@ It ingests RTSP video streams from municipal CCTV cameras overlooking drainage g
 ### Ingestion & Visual Layer
 - **CCTV Stream:** IP camera video feed delivered over local RTSP (`rtsp://`), local MP4 test loop, or USB webcam on the command center network.
 - **Drainage Grate:** The physical metal bar grill or concrete culvert inlet at road curb level where runoff enters the underground drainage system.
-- **Region of Interest (ROI):** A normalized rectangular bounding box `[x_min, y_min, x_max, y_max]` calibrated on the camera view designating the active drainage grate intake opening.
+- **Region of Interest (ROI):** A normalized rectangular bounding box `[x_min, y_min, x_max, y_max]` that can be calibrated on the camera view to designate the active drainage grate intake opening. The default ROI is the full frame `[0.0, 0.0, 1.0, 1.0]`.
 - **Debris / Trash Object:** Solid waste (plastic bags, bottles, sacks, tires, styrofoam, vegetative clusters) detected by the YOLOv8 vision model.
 
 ### Occlusion & Metrics
-- **Occlusion Ratio:** The percentage ($0.0\%$ to $100.0\%$) of the calibrated Grate ROI area that is physically covered/intersected by detected debris bounding boxes.
-- **Clear Status:** Occlusion ratio $< 25\%$. Normal runoff flow, no intervention needed.
-- **Warning Status:** Occlusion ratio between $25\%$ and $59\%$. Indicates accumulating trash; maintenance queue recommended.
+- **Occlusion Ratio (width coverage):** The percentage ($0.0\%$ to $100.0\%$) of the ROI width covered by detected debris: the merged horizontal span of the debris boxes, clipped to the ROI x-range, divided by the ROI width. Only boxes overlapping the ROI vertically count, and box height is otherwise ignored.
+- **Clear Status:** Occlusion ratio $< 20\%$. Normal runoff flow, no intervention needed.
+- **Warning Status:** Occlusion ratio between $20\%$ and $59\%$. Indicates accumulating trash; maintenance queue recommended.
 - **Critical Blocked Status:** Occlusion ratio $\ge 60\%$. Urgent obstruction presenting immediate flood back-up risk.
 - **Temporal Hysteresis / Smoothing:** A rolling 2-of-3 frame filter window requiring multiple consecutive flagged frames to prevent transient floating objects from triggering false alarms.
 

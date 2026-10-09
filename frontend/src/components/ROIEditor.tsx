@@ -13,7 +13,7 @@ interface ROIEditorProps {
 
 type DragMode = 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e' | null;
 
-const DEFAULT_ROI: ROI = [0.20, 0.40, 0.80, 0.90];
+const DEFAULT_ROI: ROI = [0, 0, 1, 1];
 
 export const ROIEditor: React.FC<ROIEditorProps> = ({
   initialROI,

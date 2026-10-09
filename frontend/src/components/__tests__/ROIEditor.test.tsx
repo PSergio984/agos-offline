@@ -37,7 +37,7 @@ describe('ROIEditor Component', () => {
     expect(screen.getByText('DRAG GRATE ROI')).toBeInTheDocument();
   });
 
-  it('resets to default ROI [0.20, 0.40, 0.80, 0.90] when Reset button is clicked', () => {
+  it('resets to the full-frame default ROI [0, 0, 1, 1] when Reset button is clicked', () => {
     const customROI: ROI = [0.10, 0.10, 0.50, 0.50];
     render(
       <ROIEditor
@@ -52,7 +52,7 @@ describe('ROIEditor Component', () => {
     const resetBtn = screen.getByRole('button', { name: /Reset/i });
     fireEvent.click(resetBtn);
 
-    expect(screen.getByText(/60% × 50%/)).toBeInTheDocument();
+    expect(screen.getByText(/100% × 100%/)).toBeInTheDocument();
   });
 
   it('saves calibrated ROI via saveROI API and invokes onSave callback', async () => {

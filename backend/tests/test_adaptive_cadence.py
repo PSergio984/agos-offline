@@ -10,8 +10,8 @@ from app.ml.occlusion import compute_occlusion
 from app.services.stream_service import StreamService
 
 FRAME = np.zeros((480, 640, 3), dtype=np.uint8)
-# Default ROI [0.20, 0.40, 0.80, 0.90] on a 640x480 frame
-ROI_PX = (128.0, 192.0, 512.0, 432.0)
+# Default ROI is the full frame [0, 0, 1, 1]: 640x480 pixels
+ROI_PX = (0.0, 0.0, 640.0, 480.0)
 
 
 class FakeClock:
@@ -58,9 +58,9 @@ def _square_at_least(percent: float):
 
 
 def _band_box(fraction: float):
-    """Full-width box covering `fraction` of the ROI height."""
+    """Full-height box covering `fraction` of the ROI width (coverage is width based)."""
     x1, y1, x2, y2 = ROI_PX
-    return [x1, y1, x2, y1 + (y2 - y1) * fraction]
+    return [x1, y1, x1 + (x2 - x1) * fraction, y2]
 
 
 FULL_ROI_BOX = list(ROI_PX)
@@ -247,15 +247,18 @@ def test_sustained_critical_keeps_single_open_incident_and_updates_it():
     assert first["source_type"] == "demo"
     assert first["cloud_synced"] == 0
 
-    # Several simulated minutes, ratio drops to ~70 percent (still CRITICAL)
+    # Several simulated minutes of CRITICAL (70 percent width coverage, 2 boxes): the same
+    # open incident is refreshed with the latest measurements instead of a new one being opened
     for _ in range(40):
-        h.step(10, [_band_box(0.7)])
+        h.step(10, [_band_box(0.7), [0.0, 0.0, 100.0, 100.0]])
+    assert h.status == "CRITICAL"
     rows = _incidents()
     assert len(rows) == 1
     last = rows[0]
     assert last["id"] == first["id"]
     assert last["is_open"] == 1
-    assert last["occlusion_ratio"] < first["occlusion_ratio"]
+    assert last["debris_count"] == 2
+    assert last["occlusion_ratio"] == h.service.latest_detection["occlusion_ratio"] == 70.0
     assert last["duration_seconds"] > 300
     # fields the updater must never touch
     for key in ("radio_ticket", "synced", "image_path", "status", "timestamp"):

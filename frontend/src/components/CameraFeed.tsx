@@ -221,7 +221,7 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
 
       // 5. Compute simulated telemetry
       const totalOcclusion = 64.2 + Math.sin(angle * 0.5) * 6; // oscillates around critical ~64%
-      const status: OcclusionStatus = totalOcclusion >= 60 ? 'CRITICAL BLOCKED' : totalOcclusion >= 25 ? 'WARNING' : 'CLEAR';
+      const status: OcclusionStatus = totalOcclusion >= 60 ? 'CRITICAL BLOCKED' : totalOcclusion >= 20 ? 'WARNING' : 'CLEAR';
 
       setOcclusionRatio(Number(totalOcclusion.toFixed(1)));
       setCurrentStatus(status);
