@@ -37,7 +37,7 @@ if not exist "%FRONTEND_DIR%\node_modules" (
 )
 
 echo [3/4] Starting AGOS-Offline Backend (FastAPI on http://localhost:8000)...
-start "AGOS Backend" "%RUN_PYTHON%" -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+start "AGOS Backend" /d "%BACKEND_DIR%" "%RUN_PYTHON%" -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 timeout /t 2 /nobreak >nul
 
