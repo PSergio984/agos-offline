@@ -1,0 +1,111 @@
+{
+  "default_roi": [
+    0.2,
+    0.4,
+    0.8,
+    0.9
+  ],
+  "frame": [
+    640,
+    480
+  ],
+  "fps": 5,
+  "crossfade_seconds": 1,
+  "stages": [
+    {
+      "file": "empty.jpg",
+      "stage": "empty",
+      "hold_seconds": 20,
+      "source_roi_px": [
+        115,
+        358,
+        1165,
+        768
+      ],
+      "licence": "CC0",
+      "licence_url": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+      "title": "Dump No Waste! Drains to Waterways! - Arlington, MA - DSC05450.jpg",
+      "author": "Daderot",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Dump_No_Waste!_Drains_to_Waterways!_-_Arlington,_MA_-_DSC05450.jpg",
+      "attribution": "Dump No Waste! Drains to Waterways! - Arlington, MA - DSC05450.jpg by Daderot (CC0), via Wikimedia Commons",
+      "licence_verified_from": "Wikimedia Commons API extmetadata at download time (2026-10-09)",
+      "sha256": "9cdc706269436a4ac483644cf382ad2bc01b73244a14357b9bdc49632afe4d9f"
+    },
+    {
+      "file": "filling_a.jpg",
+      "stage": "filling",
+      "hold_seconds": 15,
+      "source_roi_px": [
+        40,
+        40,
+        1240,
+        1240
+      ],
+      "licence": "CC0",
+      "licence_url": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+      "title": "Q.W.P. 24\" Grate - Cambridge, MA.jpg",
+      "author": "Daderot",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Q.W.P._24%22_Grate_-_Cambridge,_MA.jpg",
+      "attribution": "Q.W.P. 24\" Grate - Cambridge, MA.jpg by Daderot (CC0), via Wikimedia Commons",
+      "licence_verified_from": "Wikimedia Commons API extmetadata at download time (2026-10-09)",
+      "sha256": "0373a3588260f1888a67a1a645f621523d474485370b2a373ed59b7c8fdc42ff"
+    },
+    {
+      "file": "filling_b.jpg",
+      "stage": "filling",
+      "hold_seconds": 15,
+      "source_roi_px": [
+        0,
+        256,
+        960,
+        1280
+      ],
+      "licence": "CC0",
+      "licence_url": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+      "title": "\"I prefer the bottled stuff,\" said the storm drain. (25565964563).jpg",
+      "author": "dankeck",
+      "source_url": "https://commons.wikimedia.org/wiki/File:%22I_prefer_the_bottled_stuff,%22_said_the_storm_drain._(25565964563).jpg",
+      "attribution": "\"I prefer the bottled stuff,\" said the storm drain. (25565964563).jpg by dankeck (CC0), via Wikimedia Commons",
+      "licence_verified_from": "Wikimedia Commons API extmetadata at download time (2026-10-09)",
+      "sha256": "3e42cbe1517d942be694b89fb3c037e7df192ef055b95866a77d037bced60ee6"
+    },
+    {
+      "file": "blocked.jpg",
+      "stage": "blocked",
+      "hold_seconds": 45,
+      "source_roi_px": [
+        128,
+        30,
+        1024,
+        466
+      ],
+      "licence": "CC BY 2.0",
+      "licence_url": "https://creativecommons.org/licenses/by/2.0",
+      "title": "Storm Drain Clogged - Mid-City New Orleans.jpg",
+      "author": "Bart Everson",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Storm_Drain_Clogged_-_Mid-City_New_Orleans.jpg",
+      "attribution": "Storm Drain Clogged - Mid-City New Orleans.jpg by Bart Everson (CC BY 2.0), via Wikimedia Commons",
+      "licence_verified_from": "Wikimedia Commons API extmetadata at download time (2026-10-09)",
+      "sha256": "59a9325d843fae939473aa72120dc0e1afb360f19ba1d69269c2e5f3410f0289"
+    },
+    {
+      "file": "cleared.jpg",
+      "stage": "cleared",
+      "hold_seconds": 30,
+      "source_roi_px": [
+        100,
+        250,
+        790,
+        680
+      ],
+      "licence": "CC BY 4.0",
+      "licence_url": "https://creativecommons.org/licenses/by/4.0",
+      "title": "Storm drain curb inlet San Diego.jpg",
+      "author": "Mds08011",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Storm_drain_curb_inlet_San_Diego.jpg",
+      "attribution": "Storm drain curb inlet San Diego.jpg by Mds08011 (CC BY 4.0), via Wikimedia Commons",
+      "licence_verified_from": "Wikimedia Commons API extmetadata at download time (2026-10-09)",
+      "sha256": "349278c9253ca3205b68e8803a18d15c9d0dc56485ddc3f146be085e53863673"
+    }
+  ]
+}

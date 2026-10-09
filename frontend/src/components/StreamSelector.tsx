@@ -18,6 +18,13 @@ const PRESET_SOURCES: StreamSource[] = [
     url: 'sample_media/drainage_demo.mp4',
   },
   {
+    id: 'real-demo',
+    type: 'demo',
+    name: 'Real Demo (Licensed Photos)',
+    description: 'sample_media/real_demo.mp4 (empty, filling, blocked, cleared)',
+    url: 'sample_media/real_demo.mp4',
+  },
+  {
     id: 'usb-webcam',
     type: 'webcam',
     name: 'USB Webcam',
