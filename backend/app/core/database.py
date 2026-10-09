@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS cameras (
     source_type TEXT NOT NULL,
     is_active INTEGER NOT NULL DEFAULT 0,
     location TEXT DEFAULT '',
+    target_group_id TEXT DEFAULT 'grp-drainage',
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
@@ -112,6 +113,25 @@ CREATE TABLE IF NOT EXISTS notification_dispatches (
 );
 """
 
+SQL_CREATE_SMS_GATEWAY_CONFIG = """
+CREATE TABLE IF NOT EXISTS sms_gateway_config (
+    id TEXT PRIMARY KEY DEFAULT 'default',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    mode TEXT NOT NULL DEFAULT 'mock',
+    gateway_url TEXT NOT NULL DEFAULT 'http://192.168.1.100:8080',
+    api_key TEXT NOT NULL DEFAULT 'admin:secret',
+    cooldown_minutes INTEGER NOT NULL DEFAULT 15,
+    max_retries INTEGER NOT NULL DEFAULT 3,
+    default_group_id TEXT DEFAULT 'grp-drainage',
+    last_ping_status TEXT DEFAULT 'UNKNOWN',
+    last_ping_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+"""
+
+CAMERA_EXTRA_COLUMNS = {
+    "target_group_id": "TEXT",
+}
 
 # Columns added after the first release. Applied additively to fresh and legacy databases alike.
 INCIDENT_EXTRA_COLUMNS = {
@@ -124,6 +144,12 @@ INCIDENT_EXTRA_COLUMNS = {
     "model_sha256": "TEXT",
     "precipitation_mm": "REAL",
     "weather_code": "INTEGER",
+    "radio_dispatched_at": "TEXT",
+}
+
+NOTIFICATION_DISPATCHES_EXTRA_COLUMNS = {
+    "incident_id": "TEXT",
+    "radio_ticket": "TEXT",
 }
 
 # One row per successful online weather fetch (timestamps are UTC ISO-8601)
@@ -171,15 +197,31 @@ SQL_SELECT_INCIDENTS = """
         i.model_version,
         i.model_sha256,
         i.precipitation_mm,
-        i.weather_code
+        i.weather_code,
+        i.radio_dispatched_at
     FROM incidents i
     LEFT JOIN cameras c ON i.camera_id = c.id
 """
 
 
+def _cache_safe_snapshot_url(url: Optional[str]) -> Optional[str]:
+    """Append the saved image's mtime so a refreshed snapshot is not served stale from cache.
+
+    Empty paths and files that are missing on disk (manual test rows) are returned unchanged.
+    """
+    if not url or not url.startswith("/storage/incidents/"):
+        return url
+    try:
+        mtime_ns = (settings.STORAGE_DIR / url.rsplit("/", 1)[-1]).stat().st_mtime_ns
+    except OSError:
+        return url
+    return f"{url}?v={mtime_ns}"
+
+
 def serialize_incident(row: Any) -> Dict[str, Any]:
     """Convert a SQL_SELECT_INCIDENTS row into the API/event incident shape."""
     d = dict(row)
+    d["snapshot_url"] = _cache_safe_snapshot_url(d.get("snapshot_url"))
     d["cloud_synced"] = bool(d["cloud_synced"])
     d["debris_types"] = ["Plastic Sacks", "PET Bottles", "Organic Debris"] if d.get("debris_count", 0) > 0 else []
     return d
@@ -223,7 +265,10 @@ async def init_db() -> None:
         await db.execute(SQL_CREATE_RESPONDER_GROUP_MEMBERS)
         await db.execute(SQL_CREATE_NOTIFICATION_TEMPLATES)
         await db.execute(SQL_CREATE_NOTIFICATION_DISPATCHES)
+        await db.execute(SQL_CREATE_SMS_GATEWAY_CONFIG)
 
+        await _ensure_columns(db, "cameras", CAMERA_EXTRA_COLUMNS)
+        await _ensure_columns(db, "notification_dispatches", NOTIFICATION_DISPATCHES_EXTRA_COLUMNS)
         added = await _ensure_columns(db, "incidents", INCIDENT_EXTRA_COLUMNS)
         if "cloud_synced" in added:
             # Known limitation: legacy synced=1 rows are ambiguous (dispatched by an operator vs
@@ -320,12 +365,45 @@ async def init_db() -> None:
                     "General DRRMO Advisory",
                     "COMMUNITY ADVISORY: Drainage maintenance scheduled for {location} on {time}. Keep grates clear.",
                 ),
+                (
+                    "tmpl-clear",
+                    "clear",
+                    "Drainage Blockage Resolved",
+                    "ALL CLEAR: Obstruction at {location} cleared as of {time}. Normal runoff restored.",
+                ),
             ]
             for tid, ttype, title, msg in default_templates:
                 await db.execute(
                     "INSERT INTO notification_templates (id, type, title, message) VALUES (?, ?, ?, ?)",
                     (tid, ttype, title, msg),
                 )
+            await db.commit()
+        else:
+            # Add tmpl-clear if existing database lacks it
+            cursor = await db.execute("SELECT id FROM notification_templates WHERE id = 'tmpl-clear'")
+            if not await cursor.fetchone():
+                await db.execute(
+                    "INSERT INTO notification_templates (id, type, title, message) VALUES (?, ?, ?, ?)",
+                    (
+                        "tmpl-clear",
+                        "clear",
+                        "Drainage Blockage Resolved",
+                        "ALL CLEAR: Obstruction at {location} cleared as of {time}. Normal runoff restored.",
+                    ),
+                )
+                await db.commit()
+
+        # Seed default SMS gateway config if empty
+        cursor = await db.execute("SELECT COUNT(*) FROM sms_gateway_config")
+        sms_cfg_count = (await cursor.fetchone())[0]
+        if sms_cfg_count == 0:
+            await db.execute(
+                """
+                INSERT INTO sms_gateway_config (
+                    id, enabled, mode, gateway_url, api_key, cooldown_minutes, max_retries, default_group_id, last_ping_status
+                ) VALUES ('default', 1, 'mock', 'http://192.168.1.100:8080', 'admin:secret', 15, 3, 'grp-drainage', 'UNKNOWN')
+                """
+            )
             await db.commit()
 
         # Seed default camera if not exists

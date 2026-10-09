@@ -96,6 +96,12 @@ class StreamService:
         # Synthetic animation state
         self._synth_tick: int = 0
 
+        # Automated SMS alert throttle tracking per camera_id: {camera_id: last_alert_epoch_seconds}
+        self._last_alert_time: Dict[str, float] = {}
+
+        # Highest coverage seen per open incident, so the boxed snapshot is only rewritten at a new peak
+        self._incident_peaks: Dict[str, float] = {}
+
     @property
     def is_running(self) -> bool:
         with self._lock:
@@ -618,24 +624,39 @@ class StreamService:
         now: float,
     ) -> None:
         """
-        Keep exactly one open incident per camera in SQLite: open it on confirmed CRITICAL,
-        refresh its measurements while the blockage persists, close it on confirmed CLEAR.
+        Keep exactly one open incident per camera in SQLite: open it on confirmed WARNING or
+        CRITICAL, upgrade a WARNING incident to CRITICAL in place, refresh its measurements (and
+        its boxed snapshot at a new coverage peak) while the obstruction persists, and close it on
+        confirmed CLEAR. The row keeps the highest level reached. SMS alerts are CRITICAL-only.
         """
         try:
             now_dt = datetime.fromtimestamp(now)
             now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
             with closing(sqlite3.connect(str(settings.DATABASE_PATH))) as conn:
                 row = conn.execute(
-                    "SELECT id, timestamp FROM incidents WHERE camera_id = ? AND is_open = 1",
+                    "SELECT id, timestamp, radio_ticket, status, occlusion_ratio "
+                    "FROM incidents WHERE camera_id = ? AND is_open = 1",
                     (camera_id,),
                 ).fetchone()
 
                 if row is None:
-                    if confirmed_status == OcclusionStatus.CRITICAL:
-                        self._open_incident(conn, frame, occlusion_ratio, debris_count, camera_id, now_str)
+                    if confirmed_status in (OcclusionStatus.WARNING, OcclusionStatus.CRITICAL):
+                        incident_id, radio_ticket = self._open_incident(
+                            conn, frame, occlusion_ratio, debris_count, camera_id, now_str, confirmed_status.value
+                        )
+                        if confirmed_status == OcclusionStatus.CRITICAL:
+                            self._trigger_incident_sms(
+                                conn,
+                                camera_id,
+                                occlusion_ratio,
+                                is_clear=False,
+                                now=now,
+                                incident_id=incident_id,
+                                radio_ticket=radio_ticket,
+                            )
                     return
 
-                incident_id, started_str = row
+                incident_id, started_str, inc_ticket, inc_status, stored_ratio = row
                 started = datetime.strptime(started_str, "%Y-%m-%d %H:%M:%S")
                 duration = max(0.0, (now_dt - started).total_seconds())
 
@@ -645,14 +666,37 @@ class StreamService:
                         (now_str, duration, incident_id),
                     )
                     conn.commit()
+                    self._incident_peaks.pop(incident_id, None)
                     logger.info(f"Closed blockage incident {incident_id} after {duration:.0f}s")
+                    if inc_status == "CRITICAL":
+                        self._trigger_incident_sms(
+                            conn,
+                            camera_id,
+                            occlusion_ratio,
+                            is_clear=True,
+                            now=now,
+                            incident_id=incident_id,
+                            radio_ticket=inc_ticket,
+                        )
                     return
 
-                # Still blocked: refresh measurements only. Dispatch state, radio ticket,
-                # snapshot and status belong to the record's first moment and stay untouched.
+                # Still obstructed. The row only ever moves up: WARNING -> CRITICAL, never back down.
+                upgraded = confirmed_status == OcclusionStatus.CRITICAL and inc_status != "CRITICAL"
+                level = "CRITICAL" if (upgraded or inc_status == "CRITICAL") else "WARNING"
+
+                # Rewrite the boxed snapshot (same file name) on upgrade and whenever coverage hits a new peak
+                peak = self._incident_peaks.get(incident_id, stored_ratio or 0.0)
+                if upgraded or occlusion_ratio > peak:
+                    self._save_incident_image(
+                        frame, settings.STORAGE_DIR / f"{incident_id}.jpg", level, occlusion_ratio
+                    )
+                    self._incident_peaks[incident_id] = max(peak, occlusion_ratio)
+
+                # Dispatch state and the radio ticket belong to the record's first moment and stay untouched
                 conn.execute(
-                    "UPDATE incidents SET occlusion_ratio = ?, debris_count = ?, duration_seconds = ? WHERE id = ?",
-                    (occlusion_ratio, debris_count, duration, incident_id),
+                    "UPDATE incidents SET status = ?, occlusion_ratio = ?, debris_count = ?, duration_seconds = ? "
+                    "WHERE id = ?",
+                    (level, occlusion_ratio, debris_count, duration, incident_id),
                 )
                 pending = conn.execute(
                     "SELECT id, payload FROM sync_queue "
@@ -663,13 +707,92 @@ class StreamService:
                     payload = json.loads(pending[1])
                     payload["occlusion_ratio"] = occlusion_ratio
                     payload["debris_count"] = debris_count
+                    payload["status"] = level
                     conn.execute(
                         "UPDATE sync_queue SET payload = ?, updated_at = ? WHERE id = ?",
                         (json.dumps(payload), now_str, pending[0]),
                     )
+                elif upgraded:
+                    # The WARNING version was already delivered: queue the new version. The cloud
+                    # POST is an upsert on the incident id, so it replaces the delivered row.
+                    conn.row_factory = sqlite3.Row
+                    current = conn.execute(
+                        "SELECT id, camera_id, timestamp, occlusion_ratio, status, debris_count, image_path, "
+                        "radio_ticket FROM incidents WHERE id = ?",
+                        (incident_id,),
+                    ).fetchone()
+                    conn.row_factory = None
+                    conn.execute(
+                        "INSERT INTO sync_queue (id, entity_type, entity_id, payload, status) "
+                        "VALUES (?, 'incident', ?, ?, 'PENDING')",
+                        (f"sync-{uuid.uuid4().hex[:8]}", incident_id, json.dumps(dict(current))),
+                    )
+                    conn.execute("UPDATE incidents SET cloud_synced = 0 WHERE id = ?", (incident_id,))
                 conn.commit()
+
+                if upgraded:
+                    self._emit_incident_event(conn, incident_id)
+                    logger.warning(
+                        f"[ALERT] Logged CRITICAL blockage incident: {incident_id} [{inc_ticket}] "
+                        f"(upgraded from WARNING, occlusion: {occlusion_ratio:.1f}%, camera: {camera_id})"
+                    )
+                    self._trigger_incident_sms(
+                        conn,
+                        camera_id,
+                        occlusion_ratio,
+                        is_clear=False,
+                        now=now,
+                        incident_id=incident_id,
+                        radio_ticket=inc_ticket,
+                    )
+                elif level == "CRITICAL":
+                    # Check cooldown timer for sustained critical blockage reminders
+                    try:
+                        from app.services.sms_service import sms_service
+                        cfg = sms_service.get_config_sync()
+                        cooldown_secs = float(cfg.get("cooldown_minutes", 15)) * 60.0
+                        last_alert = self._last_alert_time.get(camera_id, 0.0)
+                        if (now - last_alert) >= cooldown_secs:
+                            self._trigger_incident_sms(
+                                conn,
+                                camera_id,
+                                occlusion_ratio,
+                                is_clear=False,
+                                now=now,
+                                incident_id=incident_id,
+                                radio_ticket=inc_ticket,
+                            )
+                    except Exception as ex:
+                        logger.warning(f"Failed to check SMS cooldown: {ex}")
         except Exception as err:
             logger.error(f"Failed to update incident lifecycle in database: {err}", exc_info=True)
+
+    def _trigger_incident_sms(
+        self,
+        conn: sqlite3.Connection,
+        camera_id: str,
+        occlusion_ratio: float,
+        is_clear: bool,
+        now: float,
+        incident_id: Optional[str] = None,
+        radio_ticket: Optional[str] = None,
+    ) -> None:
+        """Trigger SMS notification to designated responder group for incident lifecycle change."""
+        try:
+            from app.services.sms_service import sms_service
+            cam_row = conn.execute("SELECT location, name FROM cameras WHERE id = ?", (camera_id,)).fetchone()
+            loc = (cam_row[0] if cam_row and cam_row[0] else (cam_row[1] if cam_row else camera_id))
+            sms_service.dispatch_incident_alert_sync(
+                camera_id=camera_id,
+                location=loc,
+                occlusion_ratio=occlusion_ratio,
+                is_clear=is_clear,
+                incident_id=incident_id,
+                radio_ticket=radio_ticket,
+            )
+            self._last_alert_time[camera_id] = now
+        except Exception as err:
+            logger.error(f"Error triggering incident SMS: {err}")
 
     def _open_incident(
         self,
@@ -679,36 +802,22 @@ class StreamService:
         debris_count: int,
         camera_id: str,
         now_str: str,
-    ) -> None:
-        """Persist a new critical drainage blockage incident: snapshot, row, radio ticket, sync entry."""
+        status: str = "CRITICAL",
+    ) -> Tuple[str, str]:
+        """Persist a new WARNING or CRITICAL incident: boxed snapshot, row, radio ticket, sync entry."""
         incident_id = f"inc-{uuid.uuid4().hex[:8]}"
         img_filename = f"{incident_id}.jpg"
         img_path = settings.STORAGE_DIR / img_filename
 
         # Render visual annotation snapshot for disaster forensic inspection
+        self._save_incident_image(frame, img_path, status, occlusion_ratio)
+        self._incident_peaks[incident_id] = occlusion_ratio
         with self._lock:
-            current_boxes = self._latest_detection.get("boxes", [])
-            current_roi = list(self._roi)
             # Only a real camera feed is "live"; files, synthetic and fallback frames are demo
             source_tag = self._source_tag()
 
-        annotated = draw_annotations(
-            frame,
-            detections=current_boxes,
-            roi=current_roi,
-            status="CRITICAL",
-            occlusion_ratio=occlusion_ratio,
-            show_labels=True,
-            draw_roi=True,
-            copy=True,
-        )
-        cv2.imwrite(str(img_path), annotated)
-
         rel_image_path = f"/storage/incidents/{img_filename}"
-        radio_script = (
-            f"Command to Mobile Patrol: Drainage obstruction detected at camera {camera_id}. "
-            f"Occlusion {occlusion_ratio:.1f}%, Status CRITICAL. Immediate declogging required. Over."
-        )
+        radio_ticket = f"RAD-{uuid.uuid4().hex[:6].upper()}"
 
         # Context stamps: which model made the call, and the latest stored rain reading (may be none)
         model = load_model_info(settings.WEIGHTS_PATH)
@@ -722,16 +831,17 @@ class StreamService:
                 id, camera_id, timestamp, occlusion_ratio, status,
                 image_path, debris_count, radio_ticket, synced, is_open, source_type,
                 model_version, model_sha256, precipitation_mm, weather_code
-            ) VALUES (?, ?, ?, ?, 'CRITICAL', ?, ?, ?, 0, 1, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?, ?, ?)
             """,
             (
                 incident_id,
                 camera_id,
                 now_str,
                 occlusion_ratio,
+                status,
                 rel_image_path,
                 debris_count,
-                radio_script,
+                radio_ticket,
                 source_tag,
                 model["model_version"],
                 model["weights_sha256"],
@@ -746,10 +856,10 @@ class StreamService:
             "camera_id": camera_id,
             "timestamp": now_str,
             "occlusion_ratio": occlusion_ratio,
-            "status": "CRITICAL",
+            "status": status,
             "debris_count": debris_count,
             "image_path": rel_image_path,
-            "radio_ticket": radio_script,
+            "radio_ticket": radio_ticket,
         })
 
         conn.execute(
@@ -761,14 +871,47 @@ class StreamService:
         )
         conn.commit()
 
+        self._emit_incident_event(conn, incident_id)
+
+        if status == "CRITICAL":
+            logger.warning(
+                f"[ALERT] Logged CRITICAL blockage incident: {incident_id} [{radio_ticket}] "
+                f"(occlusion: {occlusion_ratio:.1f}%, camera: {camera_id})"
+            )
+        else:
+            logger.info(
+                f"Logged {status} detection incident: {incident_id} [{radio_ticket}] "
+                f"(occlusion: {occlusion_ratio:.1f}%, camera: {camera_id})"
+            )
+        return incident_id, radio_ticket
+
+    def _save_incident_image(
+        self, frame: np.ndarray, img_path: Path, status: str, occlusion_ratio: float
+    ) -> None:
+        """Write the boxed (annotated) frame for an incident; rewriting the same path replaces it."""
+        with self._lock:
+            current_boxes = self._latest_detection.get("boxes", [])
+            current_roi = list(self._roi)
+
+        annotated = draw_annotations(
+            frame,
+            detections=current_boxes,
+            roi=current_roi,
+            status=status,
+            occlusion_ratio=occlusion_ratio,
+            show_labels=True,
+            draw_roi=True,
+            copy=True,
+        )
+        if not cv2.imwrite(str(img_path), annotated):
+            logger.warning(f"Could not write incident snapshot {img_path}")
+
+    def _emit_incident_event(self, conn: sqlite3.Connection, incident_id: str) -> None:
+        """Queue an incident_created envelope with the incident's current row."""
         conn.row_factory = sqlite3.Row
         created = conn.execute(SQL_SELECT_INCIDENTS + " WHERE i.id = ?", (incident_id,)).fetchone()
         self._emit_event("incident_created", serialize_incident(created))
 
-        logger.warning(
-            f"[ALERT] Logged CRITICAL blockage incident: {incident_id} "
-            f"(occlusion: {occlusion_ratio:.1f}%, camera: {camera_id})"
-        )
     def _update_frame_buffer(self, frame: np.ndarray) -> None:
         """Evaluate inference, overlay HUD annotations, encode JPEG, and update buffers."""
         # 1. Run local AI inference when due
