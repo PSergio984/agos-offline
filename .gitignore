@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Database & Local Storage
+agos.db
+backend/agos.db
+*.sqlite3
+backend/storage/incidents/*.jpg
+!backend/storage/incidents/.gitkeep
+
+# Node & Frontend
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.DS_Store
+*.local
+
+# Environment variables
+.env
+backend/.env
+frontend/.env
