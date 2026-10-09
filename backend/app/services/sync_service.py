@@ -68,13 +68,15 @@ class SyncService:
         reachability = await self.check_internet_reachability()
         has_supabase = bool(settings.SUPABASE_URL and settings.SUPABASE_KEY)
 
-        status_text = "SYNCED_CLOUD" if reachability and pending_count == 0 else "LOCAL_OFFLINE"
+        # Only claim a cloud sync when a cloud is actually configured and everything is delivered
+        is_synced = has_supabase and reachability and pending_count == 0
+        status_text = "SYNCED_CLOUD" if is_synced else "LOCAL_OFFLINE"
 
         return {
             "is_online": reachability,
             "has_supabase_configured": has_supabase,
             "status": status_text,
-            "status_label": "Synced with Cloud" if (reachability and pending_count == 0) else "Local Offline Mode",
+            "status_label": "Synced with Cloud" if is_synced else "Local Offline Mode",
             "pending_count": pending_count,
             "synced_count": synced_count,
             "last_sync_time": self._last_sync_time.isoformat() if self._last_sync_time else None,
@@ -106,8 +108,15 @@ class SyncService:
                     "message": "Sync queue is already empty (all records synced)",
                 }
 
+            if not (settings.SUPABASE_URL and settings.SUPABASE_KEY):
+                # Nothing was delivered anywhere, so nothing may be marked as synced
+                return {
+                    "success": False,
+                    "synced_count": 0,
+                    "message": f"Supabase not configured: {len(rows)} rows remain pending",
+                }
+
             flushed = 0
-            has_supabase = bool(settings.SUPABASE_URL and settings.SUPABASE_KEY)
 
             for row in rows:
                 row_id = row["id"]
@@ -115,34 +124,40 @@ class SyncService:
                 payload_str = row["payload"]
                 payload = json.loads(payload_str) if payload_str else {}
 
-                # If Supabase credentials configured, post to Supabase REST table
-                if has_supabase:
-                    try:
-                        headers = {
-                            "apikey": settings.SUPABASE_KEY,
-                            "Authorization": f"Bearer {settings.SUPABASE_KEY}",
-                            "Content-Type": "application/json",
-                            "Prefer": "return=minimal",
-                        }
-                        endpoint = f"{settings.SUPABASE_URL.rstrip('/')}/rest/v1/drainage_incidents"
-                        async with httpx.AsyncClient(timeout=5.0) as client:
-                            res = await client.post(endpoint, json=payload, headers=headers)
-                            if res.status_code not in (200, 201):
-                                logger.warning(f"Supabase sync rejected row {row_id}: {res.text}")
-                                continue
-                    except Exception as exc:
-                        logger.error(f"Failed to post row {row_id} to Supabase: {exc}")
-                        self._last_error = str(exc)
-                        continue
-
-                # Mark as SYNCED in SQLite
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                try:
+                    headers = {
+                        "apikey": settings.SUPABASE_KEY,
+                        "Authorization": f"Bearer {settings.SUPABASE_KEY}",
+                        "Content-Type": "application/json",
+                        "Prefer": "return=minimal",
+                    }
+                    endpoint = f"{settings.SUPABASE_URL.rstrip('/')}/rest/v1/drainage_incidents"
+                    async with httpx.AsyncClient(timeout=5.0) as client:
+                        res = await client.post(endpoint, json=payload, headers=headers)
+                    if res.status_code not in (200, 201):
+                        logger.warning(f"Supabase sync rejected row {row_id}: {res.text}")
+                        await db.execute(
+                            "UPDATE sync_queue SET retry_count = retry_count + 1, updated_at = ? WHERE id = ?",
+                            (now_str, row_id),
+                        )
+                        continue
+                except Exception as exc:
+                    logger.error(f"Failed to post row {row_id} to Supabase: {exc}")
+                    self._last_error = str(exc)
+                    await db.execute(
+                        "UPDATE sync_queue SET retry_count = retry_count + 1, updated_at = ? WHERE id = ?",
+                        (now_str, row_id),
+                    )
+                    continue
+
+                # Mark as SYNCED in SQLite. incidents.synced is the dispatch state; never touch it here.
                 await db.execute(
                     "UPDATE sync_queue SET status = 'SYNCED', updated_at = ? WHERE id = ?",
                     (now_str, row_id),
                 )
                 await db.execute(
-                    "UPDATE incidents SET synced = 1 WHERE id = ?",
+                    "UPDATE incidents SET cloud_synced = 1 WHERE id = ?",
                     (entity_id,),
                 )
                 flushed += 1

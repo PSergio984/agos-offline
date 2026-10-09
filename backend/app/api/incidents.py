@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import aiosqlite
 
-from app.core.database import get_db
+from app.core.database import SQL_SELECT_INCIDENTS, get_db, serialize_incident
 
 router = APIRouter()
 
@@ -30,27 +30,7 @@ async def list_incidents(
     db: aiosqlite.Connection = Depends(get_db),
 ):
     """List recent blockage incidents from SQLite joined with camera location."""
-    query = """
-        SELECT 
-            i.id,
-            i.camera_id,
-            COALESCE(c.name, i.camera_id) AS camera_name,
-            COALESCE(c.location, 'Curb Inlet Zone') AS location,
-            i.timestamp,
-            i.occlusion_ratio,
-            i.status,
-            i.image_path AS snapshot_url,
-            i.debris_count,
-            i.radio_ticket,
-            CASE 
-                WHEN i.synced = 2 THEN 'RESOLVED'
-                WHEN i.synced = 1 THEN 'DISPATCHED'
-                ELSE 'PENDING'
-            END AS action_taken,
-            i.synced
-        FROM incidents i
-        LEFT JOIN cameras c ON i.camera_id = c.id
-    """
+    query = SQL_SELECT_INCIDENTS
     params = []
     if status:
         query += " WHERE i.status = ?"
@@ -63,9 +43,7 @@ async def list_incidents(
     
     result = []
     for r in rows:
-        d = dict(r)
-        d["debris_types"] = ["Plastic Sacks", "PET Bottles", "Organic Debris"] if d.get("debris_count", 0) > 0 else []
-        result.append(d)
+        result.append(serialize_incident(r))
     return result
 
 
@@ -81,8 +59,8 @@ async def create_incident(
     await db.execute("""
         INSERT INTO incidents (
             id, camera_id, timestamp, occlusion_ratio, status,
-            image_path, debris_count, radio_ticket, synced
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+            image_path, debris_count, radio_ticket, synced, source_type, is_open
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'manual', 0)
     """, (
         incident_id, req.camera_id, now, req.occlusion_ratio, req.status,
         req.image_path, req.debris_count, req.radio_ticket
@@ -127,7 +105,7 @@ async def dispatch_incident(
     await db.execute("""
         UPDATE incidents 
         SET synced = 1 
-        WHERE id = ?
+        WHERE id = ? AND synced = 0
     """, (incident_id,))
     await db.commit()
     return {"status": "success", "message": f"Incident {incident_id} dispatched over radio"}

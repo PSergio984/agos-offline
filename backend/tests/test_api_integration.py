@@ -1,6 +1,14 @@
 """End-to-end integration and API tests for AGOS-Offline FastAPI backend."""
 
+import asyncio
+import sqlite3
+
+import pytest
 from fastapi.testclient import TestClient
+
+from app.core.config import settings
+from app.core.database import init_db
+from app.services.sync_service import sync_service
 
 
 def test_health_check(client: TestClient):
@@ -115,3 +123,218 @@ def test_websocket_stream(client: TestClient):
                 break
         assert pong is not None, "Failed to receive pong from WebSocket"
         assert pong["type"] == "pong"
+
+# --- Sync correctness and migration --------------------------------------------------
+
+
+def _db():
+    conn = sqlite3.connect(str(settings.DATABASE_PATH))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _seed_incident(synced: int = 0, incident_id: str = "inc-test0001") -> str:
+    conn = _db()
+    try:
+        conn.execute(
+            """
+            INSERT INTO incidents (id, camera_id, timestamp, occlusion_ratio, status, synced)
+            VALUES (?, 'cam-default', '2026-01-01 10:00:00', 80.0, 'CRITICAL', ?)
+            """,
+            (incident_id, synced),
+        )
+        conn.execute(
+            "INSERT INTO sync_queue (id, entity_type, entity_id, payload, status) "
+            "VALUES (?, 'incident', ?, '{\"id\": \"x\"}', 'PENDING')",
+            (f"sync-{incident_id}", incident_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return incident_id
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int):
+        self.status_code = status_code
+        self.text = "fake"
+
+
+def _fake_async_client(status_code=None, error=None):
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, *args, **kwargs):
+            if error:
+                raise error
+            return _FakeResponse(status_code)
+
+    return FakeAsyncClient
+
+
+@pytest.fixture
+def online(monkeypatch):
+    async def _reachable():
+        return True
+
+    monkeypatch.setattr(sync_service, "check_internet_reachability", _reachable)
+
+
+def test_unconfigured_flush_leaves_rows_pending(client: TestClient, online, monkeypatch):
+    monkeypatch.setattr(settings, "SUPABASE_URL", "")
+    monkeypatch.setattr(settings, "SUPABASE_KEY", "")
+    inc_id = _seed_incident()
+
+    res = client.post("/api/v1/sync/flush").json()
+    assert res["success"] is False
+    assert "pending" in res["message"]
+
+    status = client.get("/api/v1/sync/status").json()
+    assert status["has_supabase_configured"] is False
+    assert status["pending_count"] == 1
+    assert status["status"] != "SYNCED_CLOUD"
+
+    incident = next(i for i in client.get("/api/v1/incidents").json() if i["id"] == inc_id)
+    assert incident["cloud_synced"] is False
+    assert incident["synced"] == 0
+
+
+def test_failed_post_increments_retry_count(client: TestClient, online, monkeypatch):
+    monkeypatch.setattr(settings, "SUPABASE_URL", "https://example.invalid")
+    monkeypatch.setattr(settings, "SUPABASE_KEY", "key")
+    inc_id = _seed_incident()
+
+    for fake in (_fake_async_client(status_code=500), _fake_async_client(error=RuntimeError("boom"))):
+        monkeypatch.setattr("app.services.sync_service.httpx.AsyncClient", fake)
+        client.post("/api/v1/sync/flush")
+
+    conn = _db()
+    try:
+        row = conn.execute("SELECT status, retry_count FROM sync_queue WHERE entity_id = ?", (inc_id,)).fetchone()
+        inc = conn.execute("SELECT cloud_synced, synced FROM incidents WHERE id = ?", (inc_id,)).fetchone()
+    finally:
+        conn.close()
+    assert row["status"] == "PENDING"
+    assert row["retry_count"] == 2
+    assert inc["cloud_synced"] == 0
+    assert inc["synced"] == 0
+
+
+def test_successful_sync_sets_cloud_synced_without_touching_dispatch_state(
+    client: TestClient, online, monkeypatch
+):
+    monkeypatch.setattr(settings, "SUPABASE_URL", "https://example.invalid")
+    monkeypatch.setattr(settings, "SUPABASE_KEY", "key")
+    dispatched = _seed_incident(synced=1, incident_id="inc-dispatched")
+    resolved = _seed_incident(synced=2, incident_id="inc-resolved")
+    pending = _seed_incident(synced=0, incident_id="inc-pending")
+    monkeypatch.setattr("app.services.sync_service.httpx.AsyncClient", _fake_async_client(status_code=201))
+
+    res = client.post("/api/v1/sync/flush").json()
+    assert res["success"] is True
+    assert res["synced_count"] == 3
+
+    by_id = {i["id"]: i for i in client.get("/api/v1/incidents").json()}
+    assert by_id[dispatched]["action_taken"] == "DISPATCHED"
+    assert by_id[resolved]["action_taken"] == "RESOLVED"
+    assert by_id[pending]["action_taken"] == "PENDING"
+    assert all(by_id[i]["cloud_synced"] is True for i in (dispatched, resolved, pending))
+
+    status = client.get("/api/v1/sync/status").json()
+    assert status["status"] == "SYNCED_CLOUD"
+
+
+def test_double_dispatch_is_idempotent_and_never_downgrades_resolved(client: TestClient):
+    inc_id = _seed_incident()
+    assert client.post(f"/api/v1/incidents/{inc_id}/dispatch").status_code == 200
+    assert client.post(f"/api/v1/incidents/{inc_id}/dispatch").status_code == 200
+    conn = _db()
+    try:
+        assert conn.execute("SELECT synced FROM incidents WHERE id = ?", (inc_id,)).fetchone()[0] == 1
+    finally:
+        conn.close()
+
+    client.post(f"/api/v1/incidents/{inc_id}/resolve")
+    client.post(f"/api/v1/incidents/{inc_id}/dispatch")
+    conn = _db()
+    try:
+        assert conn.execute("SELECT synced FROM incidents WHERE id = ?", (inc_id,)).fetchone()[0] == 2
+    finally:
+        conn.close()
+
+
+def test_manual_incident_is_tagged_and_never_open(client: TestClient):
+    res = client.post(
+        "/api/v1/incidents",
+        json={"camera_id": "cam-default", "occlusion_ratio": 70.0, "status": "CRITICAL"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["source_type"] == "manual"
+    assert body["is_open"] == 0
+
+
+LEGACY_INCIDENTS_DDL = """
+CREATE TABLE incidents (
+    id TEXT PRIMARY KEY,
+    camera_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    occlusion_ratio REAL NOT NULL,
+    status TEXT NOT NULL,
+    image_path TEXT DEFAULT '',
+    debris_count INTEGER NOT NULL DEFAULT 0,
+    radio_ticket TEXT DEFAULT '',
+    synced INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+
+def test_legacy_database_migrates_without_data_loss(tmp_path, monkeypatch):
+    legacy = tmp_path / "legacy.db"
+    conn = sqlite3.connect(str(legacy))
+    conn.execute(LEGACY_INCIDENTS_DDL)
+    conn.execute(
+        "CREATE TABLE sync_queue (id TEXT PRIMARY KEY, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, "
+        "payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING', retry_count INTEGER NOT NULL DEFAULT 0, "
+        "created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')), "
+        "updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))"
+    )
+    conn.execute(
+        "INSERT INTO incidents (id, camera_id, occlusion_ratio, status, synced) VALUES ('inc-old1', 'cam-default', 75.0, 'CRITICAL', 1)"
+    )
+    conn.execute(
+        "INSERT INTO incidents (id, camera_id, occlusion_ratio, status, synced) VALUES ('inc-old2', 'cam-default', 65.0, 'CRITICAL', 0)"
+    )
+    conn.execute("INSERT INTO sync_queue (id, entity_type, entity_id, payload, status) VALUES ('s1', 'incident', 'inc-old1', '{}', 'SYNCED')")
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(settings, "DATABASE_PATH", legacy)
+    asyncio.run(init_db())
+    asyncio.run(init_db())  # idempotent
+
+    conn = sqlite3.connect(str(legacy))
+    conn.row_factory = sqlite3.Row
+    try:
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(incidents)")}
+        rows = {r["id"]: dict(r) for r in conn.execute("SELECT * FROM incidents")}
+        indexes = {r["name"] for r in conn.execute("PRAGMA index_list(incidents)")}
+    finally:
+        conn.close()
+
+    assert {"is_open", "closed_at", "duration_seconds", "source_type", "cloud_synced"} <= columns
+    assert "ux_incidents_one_open_per_camera" in indexes
+    assert set(rows) == {"inc-old1", "inc-old2"}
+    assert rows["inc-old1"]["occlusion_ratio"] == 75.0
+    assert rows["inc-old1"]["synced"] == 1  # ambiguous legacy dispatch state left untouched
+    assert rows["inc-old1"]["cloud_synced"] == 1  # backfilled from SYNCED queue row
+    assert rows["inc-old2"]["cloud_synced"] == 0
+    assert rows["inc-old1"]["source_type"] == "unknown"
+    assert rows["inc-old1"]["is_open"] == 0

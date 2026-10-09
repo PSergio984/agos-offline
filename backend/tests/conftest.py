@@ -24,6 +24,15 @@ def weights_path() -> Path:
 
 
 @pytest.fixture(autouse=True)
+def test_storage_dir(tmp_path, monkeypatch):
+    """Point incident snapshot storage at a temp dir so tests never write real JPEGs."""
+    storage_dir = tmp_path / "incidents"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(settings, "STORAGE_DIR", storage_dir)
+    return storage_dir
+
+
+@pytest.fixture(autouse=True)
 def test_db(tmp_path, monkeypatch):
     """
     Test SQLite database fixture pointing settings.DATABASE_PATH to a temporary

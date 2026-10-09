@@ -1,4 +1,4 @@
-from typing import AsyncGenerator, Optional, Dict, Any
+from typing import AsyncGenerator, Optional, Dict, Any, List
 import aiosqlite
 from app.core.config import settings
 
@@ -58,6 +58,69 @@ CREATE TABLE IF NOT EXISTS sync_queue (
 """
 
 
+# Columns added after the first release. Applied additively to fresh and legacy databases alike.
+INCIDENT_EXTRA_COLUMNS = {
+    "is_open": "INTEGER NOT NULL DEFAULT 0",
+    "closed_at": "TEXT",
+    "duration_seconds": "REAL NOT NULL DEFAULT 0",
+    "source_type": "TEXT NOT NULL DEFAULT 'unknown'",
+    "cloud_synced": "INTEGER NOT NULL DEFAULT 0",
+}
+
+SQL_CREATE_OPEN_INCIDENT_INDEX = """
+CREATE UNIQUE INDEX IF NOT EXISTS ux_incidents_one_open_per_camera
+ON incidents(camera_id) WHERE is_open = 1;
+"""
+
+# Shared by GET /incidents and the stream worker's incident_created event
+SQL_SELECT_INCIDENTS = """
+    SELECT
+        i.id,
+        i.camera_id,
+        COALESCE(c.name, i.camera_id) AS camera_name,
+        COALESCE(c.location, 'Curb Inlet Zone') AS location,
+        i.timestamp,
+        i.occlusion_ratio,
+        i.status,
+        i.image_path AS snapshot_url,
+        i.debris_count,
+        i.radio_ticket,
+        CASE
+            WHEN i.synced = 2 THEN 'RESOLVED'
+            WHEN i.synced = 1 THEN 'DISPATCHED'
+            ELSE 'PENDING'
+        END AS action_taken,
+        i.synced,
+        i.cloud_synced,
+        i.source_type,
+        i.is_open,
+        i.closed_at,
+        i.duration_seconds
+    FROM incidents i
+    LEFT JOIN cameras c ON i.camera_id = c.id
+"""
+
+
+def serialize_incident(row: Any) -> Dict[str, Any]:
+    """Convert a SQL_SELECT_INCIDENTS row into the API/event incident shape."""
+    d = dict(row)
+    d["cloud_synced"] = bool(d["cloud_synced"])
+    d["debris_types"] = ["Plastic Sacks", "PET Bottles", "Organic Debris"] if d.get("debris_count", 0) > 0 else []
+    return d
+
+
+async def _ensure_columns(db: aiosqlite.Connection, table: str, columns: Dict[str, str]) -> List[str]:
+    """Add any missing columns to a table. Returns the names that were added."""
+    cursor = await db.execute(f"PRAGMA table_info({table})")
+    existing = {row[1] for row in await cursor.fetchall()}
+    added = []
+    for name, ddl in columns.items():
+        if name not in existing:
+            await db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+            added.append(name)
+    return added
+
+
 async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
     """FastAPI dependency to acquire an aiosqlite database connection."""
     conn = await aiosqlite.connect(str(settings.DATABASE_PATH))
@@ -78,6 +141,20 @@ async def init_db() -> None:
         await db.execute(SQL_CREATE_ROI_CONFIGS)
         await db.execute(SQL_CREATE_INCIDENTS)
         await db.execute(SQL_CREATE_SYNC_QUEUE)
+
+        added = await _ensure_columns(db, "incidents", INCIDENT_EXTRA_COLUMNS)
+        if "cloud_synced" in added:
+            # Known limitation: legacy synced=1 rows are ambiguous (dispatched by an operator vs
+            # marked by the old sync bug) and are left untouched. Only the queue tells us cloud state.
+            await db.execute(
+                """
+                UPDATE incidents SET cloud_synced = 1
+                WHERE id IN (
+                    SELECT entity_id FROM sync_queue WHERE entity_type = 'incident' AND status = 'SYNCED'
+                )
+                """
+            )
+        await db.execute(SQL_CREATE_OPEN_INCIDENT_INDEX)
         await db.commit()
 
         # Seed default camera if not exists

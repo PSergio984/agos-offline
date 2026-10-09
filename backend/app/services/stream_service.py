@@ -6,16 +6,20 @@ import json
 import sqlite3
 import logging
 import threading
+from collections import deque
+from contextlib import closing
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Callable, Deque, Optional, Tuple, List, Dict, Any
 from datetime import datetime
 
 import cv2
 import numpy as np
 
 from app.core.config import settings
+from app.core.database import SQL_SELECT_INCIDENTS, serialize_incident
 from app.ml.inference import YOLOInference, draw_annotations
 from app.ml.occlusion import compute_occlusion, TemporalOcclusionFilter, OcclusionStatus
+from app.services.cadence import CadenceController, CadenceMode
 
 logger = logging.getLogger("agos.stream")
 logger.setLevel(logging.INFO)
@@ -28,7 +32,9 @@ class StreamService:
     Runs a thread-safe frame acquisition loop with automatic reconnection.
     """
 
-    def __init__(self):
+    def __init__(self, clock: Callable[[], float] = time.time):
+        # Injected so cadence and incident logic can be driven deterministically in tests
+        self._clock = clock
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -63,7 +69,9 @@ class StreamService:
             initial_status=OcclusionStatus.CLEAR,
         )
         self._last_inference_time: float = 0.0
-        self._last_incident_time: float = 0.0
+        self._cadence = CadenceController()
+        # Event envelopes produced on the worker thread, drained by the WebSocket broadcast loop
+        self._events: Deque[Dict[str, Any]] = deque(maxlen=100)
         self._current_inference_interval: float = (
             settings.INFERENCE_INTERVAL_CLEAR
             if settings.ENABLE_ADAPTIVE_INFERENCE
@@ -108,6 +116,17 @@ class StreamService:
     def latest_detection(self) -> Dict[str, Any]:
         with self._lock:
             return dict(self._latest_detection)
+
+    def drain_events(self) -> List[Dict[str, Any]]:
+        """Return and clear queued WebSocket event envelopes ({"type", "data"})."""
+        with self._lock:
+            events = list(self._events)
+            self._events.clear()
+            return events
+
+    def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
+        with self._lock:
+            self._events.append({"type": event_type, "data": data})
 
     def set_roi(self, roi: List[float]) -> None:
         """Update active Region of Interest [x_min, y_min, x_max, y_max]."""
@@ -417,7 +436,7 @@ class StreamService:
 
     def _run_inference_if_due(self, frame: np.ndarray) -> None:
         """Run YOLOv8 inference and grate occlusion geometry if inference interval elapsed."""
-        now = time.time()
+        now = self._clock()
         interval = (
             self._current_inference_interval
             if settings.ENABLE_ADAPTIVE_INFERENCE
@@ -426,6 +445,7 @@ class StreamService:
         if (now - self._last_inference_time) < interval:
             return
 
+        previous_inference_time = self._last_inference_time
         self._last_inference_time = now
 
         try:
@@ -445,7 +465,21 @@ class StreamService:
                 critical_threshold=settings.CRITICAL_THRESHOLD,
             )
 
-            # 3. Apply 2-of-3 temporal hysteresis smoothing
+            # 3. Apply 2-of-3 temporal hysteresis smoothing. Frames older than 2x the burst
+            # interval are stale, so drop them (the confirmed status is kept). In SETTLED mode
+            # every gap is 10 s, so the limit is 2x the settled interval: otherwise the window
+            # would never hold 2 readings and a confirmed CRITICAL could never be cleared.
+            stale_after = 2 * (
+                settings.INFERENCE_INTERVAL_SETTLED
+                if self._cadence.mode == CadenceMode.SETTLED
+                else settings.INFERENCE_INTERVAL_BURST
+            )
+            if (
+                settings.ENABLE_ADAPTIVE_INFERENCE
+                and previous_inference_time > 0
+                and (now - previous_inference_time) > stale_after
+            ):
+                self._temporal_filter.clear_history()
             confirmed_status = self._temporal_filter.update(
                 raw_status=occlusion_res.status,
                 ratio=occlusion_res.ratio,
@@ -454,11 +488,12 @@ class StreamService:
 
             # 4. Adaptive Cadence Adjustment
             if settings.ENABLE_ADAPTIVE_INFERENCE:
-                # If debris is present in ROI or status is non-clear, trigger rapid burst to confirm
-                if occlusion_res.ratio > 0.0 or confirmed_status != OcclusionStatus.CLEAR:
-                    self._current_inference_interval = settings.INFERENCE_INTERVAL_BURST
-                else:
-                    self._current_inference_interval = settings.INFERENCE_INTERVAL_CLEAR
+                self._current_inference_interval = self._cadence.update(
+                    now=now,
+                    raw_ratio=occlusion_res.ratio,
+                    raw_status=occlusion_res.status,
+                    confirmed=confirmed_status,
+                )
 
             # 5. Cache structured detection telemetry
             detection_payload = {
@@ -471,104 +506,172 @@ class StreamService:
                 "roi": current_roi,
                 "camera_id": cam_id,
                 "interval_seconds": self._current_inference_interval,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.fromtimestamp(now).isoformat(),
             }
 
             with self._lock:
                 self._latest_detection = detection_payload
 
-            # 6. Automatically record CRITICAL blockage incident to SQLite with 60s cooldown
-            if confirmed_status == OcclusionStatus.CRITICAL:
-                if (now - self._last_incident_time) >= 60.0:
-                    self._last_incident_time = now
-                    self._log_critical_incident(frame, smoothed_ratio, len(detections), cam_id)
+            # 6. Open, update or close this camera's blockage incident
+            self._sync_incident_lifecycle(frame, confirmed_status, smoothed_ratio, len(detections), cam_id, now)
 
         except Exception as e:
             logger.error(f"Inference error in stream worker: {e}", exc_info=True)
 
-    def _log_critical_incident(
+    def _sync_incident_lifecycle(
         self,
+        frame: np.ndarray,
+        confirmed_status: OcclusionStatus,
+        occlusion_ratio: float,
+        debris_count: int,
+        camera_id: str,
+        now: float,
+    ) -> None:
+        """
+        Keep exactly one open incident per camera in SQLite: open it on confirmed CRITICAL,
+        refresh its measurements while the blockage persists, close it on confirmed CLEAR.
+        """
+        try:
+            now_dt = datetime.fromtimestamp(now)
+            now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+            with closing(sqlite3.connect(str(settings.DATABASE_PATH))) as conn:
+                row = conn.execute(
+                    "SELECT id, timestamp FROM incidents WHERE camera_id = ? AND is_open = 1",
+                    (camera_id,),
+                ).fetchone()
+
+                if row is None:
+                    if confirmed_status == OcclusionStatus.CRITICAL:
+                        self._open_incident(conn, frame, occlusion_ratio, debris_count, camera_id, now_str)
+                    return
+
+                incident_id, started_str = row
+                started = datetime.strptime(started_str, "%Y-%m-%d %H:%M:%S")
+                duration = max(0.0, (now_dt - started).total_seconds())
+
+                if confirmed_status == OcclusionStatus.CLEAR:
+                    conn.execute(
+                        "UPDATE incidents SET is_open = 0, closed_at = ?, duration_seconds = ? WHERE id = ?",
+                        (now_str, duration, incident_id),
+                    )
+                    conn.commit()
+                    logger.info(f"Closed blockage incident {incident_id} after {duration:.0f}s")
+                    return
+
+                # Still blocked: refresh measurements only. Dispatch state, radio ticket,
+                # snapshot and status belong to the record's first moment and stay untouched.
+                conn.execute(
+                    "UPDATE incidents SET occlusion_ratio = ?, debris_count = ?, duration_seconds = ? WHERE id = ?",
+                    (occlusion_ratio, debris_count, duration, incident_id),
+                )
+                pending = conn.execute(
+                    "SELECT id, payload FROM sync_queue "
+                    "WHERE entity_type = 'incident' AND entity_id = ? AND status = 'PENDING'",
+                    (incident_id,),
+                ).fetchone()
+                if pending:
+                    payload = json.loads(pending[1])
+                    payload["occlusion_ratio"] = occlusion_ratio
+                    payload["debris_count"] = debris_count
+                    conn.execute(
+                        "UPDATE sync_queue SET payload = ?, updated_at = ? WHERE id = ?",
+                        (json.dumps(payload), now_str, pending[0]),
+                    )
+                conn.commit()
+        except Exception as err:
+            logger.error(f"Failed to update incident lifecycle in database: {err}", exc_info=True)
+
+    def _open_incident(
+        self,
+        conn: sqlite3.Connection,
         frame: np.ndarray,
         occlusion_ratio: float,
         debris_count: int,
         camera_id: str,
+        now_str: str,
     ) -> None:
-        """Persist a critical drainage blockage event to disk and embedded SQLite."""
-        try:
-            incident_id = f"inc-{uuid.uuid4().hex[:8]}"
-            img_filename = f"{incident_id}.jpg"
-            img_path = settings.STORAGE_DIR / img_filename
+        """Persist a new critical drainage blockage incident: snapshot, row, radio ticket, sync entry."""
+        incident_id = f"inc-{uuid.uuid4().hex[:8]}"
+        img_filename = f"{incident_id}.jpg"
+        img_path = settings.STORAGE_DIR / img_filename
 
-            # Render visual annotation snapshot for disaster forensic inspection
-            with self._lock:
-                current_boxes = self._latest_detection.get("boxes", [])
-                current_roi = list(self._roi)
-
-            annotated = draw_annotations(
-                frame,
-                detections=current_boxes,
-                roi=current_roi,
-                status="CRITICAL",
-                occlusion_ratio=occlusion_ratio,
-                show_labels=True,
-                draw_roi=True,
-                copy=True,
-            )
-            cv2.imwrite(str(img_path), annotated)
-
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            rel_image_path = f"/storage/incidents/{img_filename}"
-            radio_script = (
-                f"Command to Mobile Patrol: Drainage obstruction detected at camera {camera_id}. "
-                f"Occlusion {occlusion_ratio:.1f}%, Status CRITICAL. Immediate declogging required. Over."
+        # Render visual annotation snapshot for disaster forensic inspection
+        with self._lock:
+            current_boxes = self._latest_detection.get("boxes", [])
+            current_roi = list(self._roi)
+            # Only a real camera feed is "live"; files, synthetic and fallback frames are demo
+            source_tag = (
+                "live"
+                if self._source_type in ("rtsp", "webcam") and not self._is_synthetic
+                else "demo"
             )
 
-            with sqlite3.connect(str(settings.DATABASE_PATH)) as conn:
-                conn.execute(
-                    """
-                    INSERT INTO incidents (
-                        id, camera_id, timestamp, occlusion_ratio, status,
-                        image_path, debris_count, radio_ticket, synced
-                    ) VALUES (?, ?, ?, ?, 'CRITICAL', ?, ?, ?, 0)
-                    """,
-                    (
-                        incident_id,
-                        camera_id,
-                        now_str,
-                        occlusion_ratio,
-                        rel_image_path,
-                        debris_count,
-                        radio_script,
-                    ),
-                )
+        annotated = draw_annotations(
+            frame,
+            detections=current_boxes,
+            roi=current_roi,
+            status="CRITICAL",
+            occlusion_ratio=occlusion_ratio,
+            show_labels=True,
+            draw_roi=True,
+            copy=True,
+        )
+        cv2.imwrite(str(img_path), annotated)
 
-                sync_payload = json.dumps({
-                    "id": incident_id,
-                    "camera_id": camera_id,
-                    "timestamp": now_str,
-                    "occlusion_ratio": occlusion_ratio,
-                    "status": "CRITICAL",
-                    "debris_count": debris_count,
-                    "image_path": rel_image_path,
-                    "radio_ticket": radio_script,
-                })
+        rel_image_path = f"/storage/incidents/{img_filename}"
+        radio_script = (
+            f"Command to Mobile Patrol: Drainage obstruction detected at camera {camera_id}. "
+            f"Occlusion {occlusion_ratio:.1f}%, Status CRITICAL. Immediate declogging required. Over."
+        )
 
-                conn.execute(
-                    """
-                    INSERT INTO sync_queue (id, entity_type, entity_id, payload, status)
-                    VALUES (?, 'incident', ?, ?, 'PENDING')
-                    """,
-                    (f"sync-{uuid.uuid4().hex[:8]}", incident_id, sync_payload),
-                )
-                conn.commit()
+        conn.execute(
+            """
+            INSERT INTO incidents (
+                id, camera_id, timestamp, occlusion_ratio, status,
+                image_path, debris_count, radio_ticket, synced, is_open, source_type
+            ) VALUES (?, ?, ?, ?, 'CRITICAL', ?, ?, ?, 0, 1, ?)
+            """,
+            (
+                incident_id,
+                camera_id,
+                now_str,
+                occlusion_ratio,
+                rel_image_path,
+                debris_count,
+                radio_script,
+                source_tag,
+            ),
+        )
 
-            logger.warning(
-                f"[ALERT] Logged CRITICAL blockage incident: {incident_id} "
-                f"(occlusion: {occlusion_ratio:.1f}%, camera: {camera_id})"
-            )
-        except Exception as err:
-            logger.error(f"Failed to record critical incident to database: {err}", exc_info=True)
+        # Cloud payload keys must stay exactly these: PostgREST rejects unknown columns
+        sync_payload = json.dumps({
+            "id": incident_id,
+            "camera_id": camera_id,
+            "timestamp": now_str,
+            "occlusion_ratio": occlusion_ratio,
+            "status": "CRITICAL",
+            "debris_count": debris_count,
+            "image_path": rel_image_path,
+            "radio_ticket": radio_script,
+        })
 
+        conn.execute(
+            """
+            INSERT INTO sync_queue (id, entity_type, entity_id, payload, status)
+            VALUES (?, 'incident', ?, ?, 'PENDING')
+            """,
+            (f"sync-{uuid.uuid4().hex[:8]}", incident_id, sync_payload),
+        )
+        conn.commit()
+
+        conn.row_factory = sqlite3.Row
+        created = conn.execute(SQL_SELECT_INCIDENTS + " WHERE i.id = ?", (incident_id,)).fetchone()
+        self._emit_event("incident_created", serialize_incident(created))
+
+        logger.warning(
+            f"[ALERT] Logged CRITICAL blockage incident: {incident_id} "
+            f"(occlusion: {occlusion_ratio:.1f}%, camera: {camera_id})"
+        )
     def _update_frame_buffer(self, frame: np.ndarray) -> None:
         """Evaluate inference, overlay HUD annotations, encode JPEG, and update buffers."""
         # 1. Run local AI inference when due

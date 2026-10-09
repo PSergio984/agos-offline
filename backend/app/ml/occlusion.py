@@ -318,6 +318,11 @@ class TemporalOcclusionFilter:
             return 0.0
         return round(float(np.mean(self.ratio_history)), 2)
 
+    def clear_history(self) -> None:
+        """Drop stale frames from the window but keep the confirmed status."""
+        self.history.clear()
+        self.ratio_history.clear()
+
     def reset(self, initial_status: OcclusionStatus = OcclusionStatus.CLEAR) -> None:
         """Reset the history window and confirmed status."""
         self.confirmed_status = initial_status
