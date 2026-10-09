@@ -7,6 +7,7 @@ import {
   resolveIncident,
   fetchWeather,
   fetchSyncStatus,
+  describeModelChip,
 } from '../api';
 import { ROI, StreamSource } from '../../types';
 
@@ -150,6 +151,32 @@ describe('API Service - Offline First Fallbacks', () => {
       const weather = await fetchWeather();
       expect(weather.is_online).toBe(true);
       expect(weather.rainfall_mm).toBe(14.5);
+    });
+
+    it('fetchWeather passes rain_hazard through', async () => {
+      const rain_hazard = { active: true, source: 'auto', threshold_mm: 15 };
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ is_online: true, rainfall_mm: 20, condition: 'Heavy', message: 'x', rain_hazard }),
+      });
+
+      const weather = await fetchWeather();
+      expect(weather.rain_hazard).toEqual(rain_hazard);
+    });
+
+    it('describeModelChip handles a missing model and flags demo input', () => {
+      expect(describeModelChip(undefined)).toBeNull();
+      expect(describeModelChip(null)).toBeNull();
+      const chip = describeModelChip({
+        loaded: true,
+        weights_sha256: '9e08da0b06ff',
+        model_version: 'legacy-unknown',
+        input_source: 'demo',
+        next_inference_in: 4.2,
+      });
+      expect(chip?.label).toContain('9e08da0b');
+      expect(chip?.label).toContain('next scan 5s');
+      expect(chip?.demo).toBe(true);
     });
 
     it('fetchSyncStatus returns LOCAL_OFFLINE fallback when endpoint unreachable', async () => {

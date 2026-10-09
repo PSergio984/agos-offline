@@ -12,6 +12,7 @@ interface RadioDispatchModalProps {
   status: string;
   debrisTypes?: string[];
   onDispatched?: () => void;
+  rainHazard?: boolean;
 }
 
 export const RadioDispatchModal: React.FC<RadioDispatchModalProps> = ({
@@ -23,6 +24,7 @@ export const RadioDispatchModal: React.FC<RadioDispatchModalProps> = ({
   status,
   debrisTypes = ['Plastic Sacks', 'Vegetative Cluster', 'Styrofoam'],
   onDispatched,
+  rainHazard = false,
 }) => {
   const [copied, setCopied] = useState<boolean>(false);
   const [selectedChannel, setSelectedChannel] = useState<string>('CH-14 (156.700 MHz DRRMO Tac 1)');
@@ -189,6 +191,16 @@ export const RadioDispatchModal: React.FC<RadioDispatchModalProps> = ({
               </button>
             </div>
           </div>
+
+          {rainHazard && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 bg-rose-50 dark:bg-rose-950/40 p-3 rounded-xl border border-rose-300 dark:border-rose-800 text-[11px] text-rose-900 dark:text-rose-200 font-semibold"
+            >
+              <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5" />
+              <p>Rain hazard: heavy rainfall reported. Confirm responder safety before sending crews to the drain.</p>
+            </div>
+          )}
 
           {/* Operator Instructions Banner */}
           <div className="flex items-start gap-2 bg-amber-50 dark:bg-slate-950/40 p-3 rounded-xl border border-amber-200 dark:border-slate-800/80 text-[11px] text-amber-900 dark:text-slate-400 font-medium">

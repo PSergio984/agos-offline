@@ -10,7 +10,7 @@ from collections import deque
 from contextlib import closing
 from pathlib import Path
 from typing import Callable, Deque, Optional, Tuple, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 import cv2
 import numpy as np
@@ -18,6 +18,7 @@ import numpy as np
 from app.core.config import settings
 from app.core.database import SQL_SELECT_INCIDENTS, serialize_incident
 from app.ml.inference import YOLOInference, draw_annotations
+from app.ml.model_info import load_model_info
 from app.ml.occlusion import compute_occlusion, TemporalOcclusionFilter, OcclusionStatus
 from app.services.cadence import CadenceController, CadenceMode
 
@@ -69,6 +70,9 @@ class StreamService:
             initial_status=OcclusionStatus.CLEAR,
         )
         self._last_inference_time: float = 0.0
+        # Runtime stats for the model_status envelope; kept out of _latest_detection on purpose
+        self._inference_stats: Dict[str, Any] = {"last_inference_ms": None}
+        self._latest_blockage_update: Optional[Dict[str, Any]] = None
         self._cadence = CadenceController()
         # Event envelopes produced on the worker thread, drained by the WebSocket broadcast loop
         self._events: Deque[Dict[str, Any]] = deque(maxlen=100)
@@ -127,6 +131,86 @@ class StreamService:
     def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
         with self._lock:
             self._events.append({"type": event_type, "data": data})
+
+    def _source_tag(self) -> str:
+        """'live' only for a real rtsp/webcam feed; files, synthetic and fallback frames are 'demo'. Caller holds the lock."""
+        return "live" if self._source_type in ("rtsp", "webcam") and not self._is_synthetic else "demo"
+
+    def latest_blockage_update(self) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            return dict(self._latest_blockage_update) if self._latest_blockage_update else None
+
+    def get_model_status(self) -> Dict[str, Any]:
+        """Model provenance and runtime stats (data of the model_status envelope and /health model)."""
+        engine = self._inference_engine
+        info = load_model_info(settings.WEIGHTS_PATH)
+
+        input_shape = output_shape = None
+        session = engine.session
+        if session is not None:
+            input_shape = list(session.get_inputs()[0].shape)
+            output_shape = list(session.get_outputs()[0].shape)
+
+        now = self._clock()
+        last = self._last_inference_time
+        interval = (
+            self._current_inference_interval
+            if settings.ENABLE_ADAPTIVE_INFERENCE
+            else settings.INFERENCE_INTERVAL_SECONDS
+        )
+        with self._lock:
+            input_source = self._source_tag()
+            is_synthetic = self._is_synthetic
+
+        return {
+            "loaded": engine.is_loaded,
+            "weights_file": info["weights_file"],
+            "weights_sha256": info["weights_sha256"],
+            "weights_size_bytes": info["weights_size_bytes"],
+            "input_shape": input_shape,
+            "output_shape": output_shape,
+            "class_names": [name for _, name in sorted(engine.class_names.items())],
+            "conf_threshold": engine.conf_threshold,
+            "iou_threshold": engine.iou_threshold,
+            "model_version": info["model_version"],
+            "training_source": info["training_source"],
+            "sidecar_hash_match": info["sidecar_hash_match"],
+            "input_source": input_source,
+            "is_synthetic": is_synthetic,
+            "last_inference_at": (
+                datetime.fromtimestamp(last, tz=timezone.utc).isoformat() if last > 0 else None
+            ),
+            "last_inference_ms": self._inference_stats["last_inference_ms"],
+            "interval_seconds": interval,
+            "next_inference_in": round(max(0.0, last + interval - now), 2) if last > 0 else 0.0,
+        }
+
+    def _publish_inference_events(
+        self,
+        confirmed_status: OcclusionStatus,
+        smoothed_ratio: float,
+        raw_ratio: float,
+        camera_id: str,
+        now: float,
+    ) -> None:
+        """Queue blockage_detection_update and model_status envelopes after an inference."""
+        blockage_status = {
+            OcclusionStatus.CLEAR: "clear",
+            OcclusionStatus.WARNING: "partial",
+            OcclusionStatus.CRITICAL: "blocked",
+        }[confirmed_status]
+        update = {
+            "camera_id": camera_id,
+            "status": confirmed_status.value,
+            "blockage_status": blockage_status,
+            "blockage_percentage": round(smoothed_ratio, 2),
+            "raw_ratio": raw_ratio,
+            "timestamp": datetime.fromtimestamp(now, tz=timezone.utc).isoformat(),
+        }
+        with self._lock:
+            self._latest_blockage_update = update
+        self._emit_event("blockage_detection_update", update)
+        self._emit_event("model_status", self.get_model_status())
 
     def set_roi(self, roi: List[float]) -> None:
         """Update active Region of Interest [x_min, y_min, x_max, y_max]."""
@@ -454,7 +538,9 @@ class StreamService:
                 cam_id = self._camera_id
 
             # 1. Run local ONNX inference
+            infer_started = time.perf_counter()
             detections = self._inference_engine.infer(frame)
+            infer_ms = round((time.perf_counter() - infer_started) * 1000.0, 2)
 
             # 2. Compute grate occlusion geometry
             occlusion_res = compute_occlusion(
@@ -514,6 +600,10 @@ class StreamService:
 
             # 6. Open, update or close this camera's blockage incident
             self._sync_incident_lifecycle(frame, confirmed_status, smoothed_ratio, len(detections), cam_id, now)
+
+            # 7. Telemetry envelopes for the WebSocket broadcaster
+            self._inference_stats["last_inference_ms"] = infer_ms
+            self._publish_inference_events(confirmed_status, smoothed_ratio, occlusion_res.ratio, cam_id, now)
 
         except Exception as e:
             logger.error(f"Inference error in stream worker: {e}", exc_info=True)
@@ -600,11 +690,7 @@ class StreamService:
             current_boxes = self._latest_detection.get("boxes", [])
             current_roi = list(self._roi)
             # Only a real camera feed is "live"; files, synthetic and fallback frames are demo
-            source_tag = (
-                "live"
-                if self._source_type in ("rtsp", "webcam") and not self._is_synthetic
-                else "demo"
-            )
+            source_tag = self._source_tag()
 
         annotated = draw_annotations(
             frame,
@@ -624,12 +710,19 @@ class StreamService:
             f"Occlusion {occlusion_ratio:.1f}%, Status CRITICAL. Immediate declogging required. Over."
         )
 
+        # Context stamps: which model made the call, and the latest stored rain reading (may be none)
+        model = load_model_info(settings.WEIGHTS_PATH)
+        weather = conn.execute(
+            "SELECT precipitation_mm, weather_code FROM weather_readings ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
         conn.execute(
             """
             INSERT INTO incidents (
                 id, camera_id, timestamp, occlusion_ratio, status,
-                image_path, debris_count, radio_ticket, synced, is_open, source_type
-            ) VALUES (?, ?, ?, ?, 'CRITICAL', ?, ?, ?, 0, 1, ?)
+                image_path, debris_count, radio_ticket, synced, is_open, source_type,
+                model_version, model_sha256, precipitation_mm, weather_code
+            ) VALUES (?, ?, ?, ?, 'CRITICAL', ?, ?, ?, 0, 1, ?, ?, ?, ?, ?)
             """,
             (
                 incident_id,
@@ -640,6 +733,10 @@ class StreamService:
                 debris_count,
                 radio_script,
                 source_tag,
+                model["model_version"],
+                model["weights_sha256"],
+                weather[0] if weather else None,
+                weather[1] if weather else None,
             ),
         )
 

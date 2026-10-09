@@ -1,0 +1,10 @@
+{
+  "model_version": "legacy-unknown",
+  "sha256": "9e08da0b06ff3cc79e4e60f8ea7c4db3ebef4b5c22db653c1a40bfc397f937e9",
+  "size_bytes": 12265161,
+  "training_source": "unknown (provenance not recorded)",
+  "trained_at": null,
+  "license": "AGPL-3.0 (Ultralytics)",
+  "validated_on": null,
+  "metrics": null
+}

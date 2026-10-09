@@ -54,6 +54,16 @@ class Settings(BaseSettings):
     PORT: int = 8000
     CORS_ORIGINS: List[str] = ["*"]
 
+    # Weather polling and rain hazard (context for operators only, never feeds alarms or cadence)
+    WEATHER_FETCH_INTERVAL_SECONDS: float = 600.0
+    WEATHER_LAT: float = 14.5995
+    WEATHER_LON: float = 120.9842
+    # PAGASA orange rainfall warning starts at 15 mm in the last hour (orange = 15 to 30 mm/h,
+    # red = more than 30 mm/h). Sources:
+    # https://www.gmanetwork.com/news/scitech/science/268941/pagasa-revises-rainfall-warning-system-changes-code-green-to-orange/story/
+    # https://cebudailynews.inquirer.net/546122/explainer-what-do-color-coded-rainfall-warnings-mean
+    RAIN_HAZARD_THRESHOLD_MM: float = 15.0
+
     # Supabase Store-and-Forward Cloud Sync (Optional)
     SUPABASE_URL: str = ""
     SUPABASE_KEY: str = ""

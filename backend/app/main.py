@@ -11,11 +11,12 @@ from app.core.config import settings
 from app.core.database import init_db, get_active_camera_record
 from app.services.stream_service import stream_service
 from app.services.sync_service import sync_worker_loop
+from app.services.weather_service import weather_worker_loop
 from app.api.cameras import router as cameras_router, switch_stream_source, StreamSwitchRequest
 from app.api.incidents import router as incidents_router
 from app.api.weather import router as weather_router
 from app.api.sync import router as sync_router
-from app.api.ws import router as ws_router, broadcast_loop
+from app.api.ws import router as ws_router, broadcast_loop, manager
 
 # Setup logging
 logging.basicConfig(
@@ -63,14 +64,19 @@ async def lifespan(app: FastAPI):
     sync_task = asyncio.create_task(sync_worker_loop())
     logger.info("Store-and-forward sync worker task started.")
 
+    # 5. Start weather poller (stores a row every WEATHER_FETCH_INTERVAL_SECONDS when online)
+    weather_task = asyncio.create_task(weather_worker_loop(manager.broadcast_json))
+    logger.info("Weather worker task started.")
+
     yield
 
     # Shutdown sequence
     logger.info("Shutting down stream ingestion, WebSocket broadcaster, and sync worker...")
     broadcast_task.cancel()
     sync_task.cancel()
+    weather_task.cancel()
     try:
-        await asyncio.gather(broadcast_task, sync_task, return_exceptions=True)
+        await asyncio.gather(broadcast_task, sync_task, weather_task, return_exceptions=True)
     except Exception:
         pass
 
@@ -129,7 +135,8 @@ async def health_check():
         "version": settings.VERSION,
         "environment": "offline-edge",
         "active_camera_id": stream_service.current_camera_id,
-        "stream": stream_service.get_status()
+        "stream": stream_service.get_status(),
+        "model": stream_service.get_model_status(),
     }
 
 

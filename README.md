@@ -82,3 +82,38 @@ npm run dev
 ```
 
 Open `http://localhost:5173` to access the Operator Console.
+
+
+---
+
+## Inference Cadence
+
+Frames are acquired continuously, but the model only runs on a schedule to save CPU and battery.
+
+| Mode | Interval | Entered when | Left when |
+| --- | --- | --- | --- |
+| Clear | 15 s | default | n/a |
+| Burst | 3 s | raw occlusion >= 2.0% of the ROI, or confirmed status is not CLEAR | confirmed CLEAR, 3 clean inferences, 15 s dwell and 60 s since the last alert |
+| Settled | 10 s | confirmed CRITICAL held for 15 s | any non-critical raw reading drops back to Burst |
+
+A blockage produces one open incident per camera. It stays open, with its occlusion and duration updating, until the status is confirmed CLEAR.
+
+## Rain Hazard
+
+Weather is fetched every 10 minutes (`WEATHER_FETCH_INTERVAL_SECONDS`) and each successful reading is stored in `weather_readings` with a UTC timestamp and WMO weather code. The rain hazard turns on when precipitation reaches `RAIN_HAZARD_THRESHOLD_MM` (default 15 mm/h, the lower bound of PAGASA's orange rainfall warning, which covers 15 to 30 mm in the last hour; see [GMA News](https://www.gmanetwork.com/news/scitech/science/268941/pagasa-revises-rainfall-warning-system-changes-code-green-to-orange/story/) and [Cebu Daily News](https://cebudailynews.inquirer.net/546122/explainer-what-do-color-coded-rainfall-warnings-mean)).
+
+The hazard only adds a badge to the console and a warning in the radio dispatch dialog. It never suppresses or changes an alarm, the inference cadence or incident creation. Operators can force it with `PUT /api/v1/weather/hazard/override` and body `{"active": true}`, `{"active": false}` or `{"active": null}` for automatic. `GET /api/v1/weather/hazard` returns the current state. The override lives in memory and resets on restart.
+
+Settings: `WEATHER_FETCH_INTERVAL_SECONDS`, `WEATHER_LAT`, `WEATHER_LON`, `RAIN_HAZARD_THRESHOLD_MM`.
+
+## Model Status
+
+`backend/app/ml/weights/best.onnx.json` records the version, training source, SHA-256 and licence of the weights. `GET /api/v1/health` returns a `model` object (also sent as a `model_status` WebSocket message) that includes `sidecar_hash_match`, which is false if the weights file no longer matches the sidecar. The current weights are tagged `legacy-unknown` because their provenance was not recorded. The weights come from Ultralytics YOLOv8 (AGPL-3.0).
+
+## Security Notes
+
+- The WebSocket at `/ws` has no authentication.
+- `CORS_ORIGINS` defaults to `["*"]`.
+- No API route requires authentication.
+
+Run AGOS-Offline on a trusted LAN only. Do not expose port 8000 to the internet.

@@ -29,3 +29,9 @@ It ingests RTSP video streams from municipal CCTV cameras overlooking drainage g
 - **Radio Dispatch Ticket:** A structured verbal call script formatted for LGU two-way VHF/UHF radio operators to immediately dispatch barangay tanods or mobile declogging crews.
 - **Offline Incident Log:** An incident record persisted in embedded SQLite (`agos.db`) with timestamp, occlusion percentage, camera identifier, and annotated JPEG frame stored on local disk (`storage/incidents/`).
 - **Store-and-Forward Queue:** An outbound synchronization queue in SQLite that holds offline events and syncs to Supabase cloud whenever internet connectivity is restored.
+
+### Cadence, Weather & Model
+- **Inference Cadence (Clear / Burst / Settled):** How often the model runs. Clear scans every 15 s, Burst every 3 s once debris appears, and Settled every 10 s while a confirmed Critical blockage persists.
+- **Open Incident:** The single in-progress blockage record for a camera. Its occlusion and duration update until a confirmed Clear status closes it.
+- **Rain Hazard:** An operator-facing flag set when rainfall reaches the PAGASA orange warning level (15 mm/h by default) or an operator override. It informs dispatch decisions and never changes alarms, cadence or incident creation.
+- **Model Sidecar:** The `best.onnx.json` file next to the weights holding version, training source, SHA-256 and licence. A mismatch with the actual file is shown as `sidecar_hash_match: false`.

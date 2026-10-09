@@ -8,6 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.config import settings
 from app.services.stream_service import stream_service
+from app.services.weather_service import weather_service
 
 logger = logging.getLogger("agos.ws")
 logger.setLevel(logging.INFO)
@@ -70,6 +71,11 @@ async def broadcast_loop() -> None:
     while True:
         try:
             start_time = asyncio.get_running_loop().time()
+
+            # Typed envelopes queued by the stream worker thread (drained even with no clients
+            # so the bounded queue never holds stale events for a later connection)
+            for event in stream_service.drain_events():
+                await manager.broadcast_json(event)
 
             # Only encode and broadcast when clients are actively listening
             if manager.count() > 0:
@@ -138,6 +144,16 @@ async def websocket_stream_endpoint(websocket: WebSocket):
             "server_time": datetime.now().isoformat(),
         }
         await websocket.send_json(initial_status)
+
+        # Initial envelopes (at most 3): model, latest blockage reading, stored weather
+        await websocket.send_json({"type": "model_status", "data": stream_service.get_model_status()})
+        blockage = stream_service.latest_blockage_update()
+        if blockage:
+            await websocket.send_json({"type": "blockage_detection_update", "data": blockage})
+        if weather_service.latest_reading():
+            await websocket.send_json(
+                {"type": "weather_update", "data": weather_service.build_stored_weather_update()}
+            )
     except Exception:
         await manager.disconnect(websocket)
         return

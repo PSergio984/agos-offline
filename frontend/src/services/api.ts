@@ -1,4 +1,4 @@
-import { Incident, ROI, StreamSource } from '../types';
+import { Incident, ModelStatus, RainHazard, ROI, StreamSource } from '../types';
 
 const API_BASE = '/api/v1';
 
@@ -155,6 +155,8 @@ export async function fetchWeather(): Promise<{
   condition: string;
   message: string;
   cached?: boolean;
+  weather_code?: number | null;
+  rain_hazard?: RainHazard;
 }> {
   try {
     const res = await fetch(`${API_BASE}/weather`);
@@ -172,6 +174,30 @@ export async function fetchWeather(): Promise<{
     condition: 'Offline Mode',
     message: 'Offline (Weather unavailable)',
     cached: false,
+  };
+}
+
+export async function fetchModelStatus(): Promise<ModelStatus | null> {
+  try {
+    const res = await fetch(`${API_BASE}/health`);
+    if (res.ok) {
+      const data = await res.json();
+      return data.model ?? null;
+    }
+  } catch (err) {
+    console.warn('[API] Health endpoint unreachable:', err);
+  }
+  return null;
+}
+
+/** Text for the header model chip. Tolerates a missing model (older backends). */
+export function describeModelChip(model: ModelStatus | null | undefined): { label: string; demo: boolean } | null {
+  if (!model) return null;
+  const sha = model.weights_sha256 ? model.weights_sha256.slice(0, 8) : 'no-hash';
+  const next = typeof model.next_inference_in === 'number' ? ` · next scan ${Math.ceil(model.next_inference_in)}s` : '';
+  return {
+    label: `${model.model_version ?? 'model'} ${sha}${next}`,
+    demo: model.input_source === 'demo' || model.is_synthetic === true,
   };
 }
 

@@ -7,11 +7,17 @@ without blocking any local AI or console operations.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from datetime import datetime
-from typing import Any, Dict, Optional
+import sqlite3
+from contextlib import closing
+from datetime import datetime, timezone
+from typing import Any, Awaitable, Callable, Dict, Optional
 
+import aiosqlite
 import httpx
+
+from app.core.config import settings
 
 logger = logging.getLogger("agos.weather")
 logger.setLevel(logging.INFO)
@@ -28,6 +34,87 @@ class WeatherService:
     def __init__(self) -> None:
         self._last_cached_weather: Optional[Dict[str, Any]] = None
         self._last_checked: Optional[datetime] = None
+        # Operator override of the rain hazard badge. In memory only: resets on restart.
+        self._hazard_override: Optional[bool] = None
+
+    def set_override(self, active: Optional[bool]) -> None:
+        """Force the rain hazard on/off, or None to return to automatic."""
+        self._hazard_override = active
+
+    def get_rain_hazard(self, precipitation_mm: Optional[float]) -> Dict[str, Any]:
+        """
+        Rain hazard shown to operators. It is context only: it never feeds the alarm path,
+        the inference cadence or incident creation.
+        """
+        threshold = settings.RAIN_HAZARD_THRESHOLD_MM
+        if self._hazard_override is not None:
+            return {"active": self._hazard_override, "source": "override", "threshold_mm": threshold}
+        active = precipitation_mm is not None and precipitation_mm >= threshold
+        return {"active": active, "source": "auto", "threshold_mm": threshold}
+
+    async def record_reading(self, payload: Dict[str, Any]) -> None:
+        """Persist one successful online fetch (UTC timestamp)."""
+        async with aiosqlite.connect(str(settings.DATABASE_PATH)) as db:
+            await db.execute(
+                """
+                INSERT INTO weather_readings
+                    (timestamp, precipitation_mm, weather_code, temperature_c, humidity_pct, condition)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload.get("timestamp") or datetime.now(timezone.utc).isoformat(),
+                    payload.get("rainfall_mm"),
+                    payload.get("weather_code"),
+                    payload.get("temperature_c"),
+                    payload.get("humidity_pct"),
+                    payload.get("condition"),
+                ),
+            )
+            await db.commit()
+
+    @staticmethod
+    def latest_reading() -> Optional[Dict[str, Any]]:
+        """Most recent stored reading, or None. Synchronous so the stream thread can use it."""
+        try:
+            with closing(sqlite3.connect(str(settings.DATABASE_PATH))) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute("SELECT * FROM weather_readings ORDER BY id DESC LIMIT 1").fetchone()
+        except sqlite3.Error:
+            return None
+        return dict(row) if row else None
+
+    def build_weather_update(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """weather_update envelope data from a get_current_weather-style payload."""
+        precip = payload.get("rainfall_mm")
+        return {
+            "precipitation_mm": precip,
+            "weather_code": payload.get("weather_code"),
+            "timestamp": payload.get("timestamp"),
+            "condition": payload.get("condition"),
+            "is_online": bool(payload.get("is_online")),
+            "rain_hazard": self.get_rain_hazard(precip if payload.get("is_online") else None),
+        }
+
+    def build_stored_weather_update(self) -> Dict[str, Any]:
+        """weather_update envelope data from the latest stored reading (empty values if none)."""
+        row = self.latest_reading()
+        if row is None:
+            return {
+                "precipitation_mm": None,
+                "weather_code": None,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "condition": None,
+                "is_online": False,
+                "rain_hazard": self.get_rain_hazard(None),
+            }
+        return {
+            "precipitation_mm": row["precipitation_mm"],
+            "weather_code": row["weather_code"],
+            "timestamp": row["timestamp"],
+            "condition": row["condition"],
+            "is_online": True,
+            "rain_hazard": self.get_rain_hazard(row["precipitation_mm"]),
+        }
 
     async def get_current_weather(
         self,
@@ -65,9 +152,10 @@ class WeatherService:
                         "temperature_c": temp,
                         "humidity_pct": humidity,
                         "condition": condition,
+                        "weather_code": code,
                         "message": f"{condition} ({precip:.1f} mm/hr)",
                         "location": "Metro Manila (PAGASA Sector)",
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                         "cached": False,
                     }
 
@@ -92,9 +180,10 @@ class WeatherService:
             "temperature_c": None,
             "humidity_pct": None,
             "condition": "Offline Mode",
+            "weather_code": None,
             "message": "Offline (Weather unavailable)",
             "location": "Local Command Center",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "cached": False,
         }
 
@@ -117,3 +206,21 @@ class WeatherService:
 
 
 weather_service = WeatherService()
+
+
+async def weather_worker_loop(publish: Callable[[Dict[str, Any]], Awaitable[None]]) -> None:
+    """Fetch weather every WEATHER_FETCH_INTERVAL_SECONDS; store and publish only online results."""
+    logger.info(f"Weather worker started (interval: {settings.WEATHER_FETCH_INTERVAL_SECONDS}s)")
+    while True:
+        try:
+            payload = await weather_service.get_current_weather(settings.WEATHER_LAT, settings.WEATHER_LON)
+            if payload.get("is_online"):
+                await weather_service.record_reading(payload)
+                await publish({"type": "weather_update", "data": weather_service.build_weather_update(payload)})
+            await asyncio.sleep(settings.WEATHER_FETCH_INTERVAL_SECONDS)
+        except asyncio.CancelledError:
+            logger.info("Weather worker cancelled.")
+            break
+        except Exception as err:
+            logger.debug(f"Weather worker idle: {err}")
+            await asyncio.sleep(5.0)

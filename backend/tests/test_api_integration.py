@@ -1,14 +1,21 @@
 """End-to-end integration and API tests for AGOS-Offline FastAPI backend."""
 
 import asyncio
+import hashlib
 import sqlite3
+import time
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.core.database import init_db
+from app.ml.occlusion import OcclusionStatus, TemporalOcclusionFilter
+from app.services.cadence import CadenceController
+from app.services.stream_service import stream_service
 from app.services.sync_service import sync_service
+from app.services.weather_service import weather_service
 
 
 def test_health_check(client: TestClient):
@@ -338,3 +345,211 @@ def test_legacy_database_migrates_without_data_loss(tmp_path, monkeypatch):
     assert rows["inc-old2"]["cloud_synced"] == 0
     assert rows["inc-old1"]["source_type"] == "unknown"
     assert rows["inc-old1"]["is_open"] == 0
+
+# --- Telemetry envelopes, model status, weather and rain hazard -----------------------
+
+STREAM_TICK_KEYS = {
+    "type", "frame", "image", "frame_b64", "timestamp", "camera_id", "roi", "fps", "status",
+    "occlusion_ratio", "raw_ratio", "debris_count", "detections", "connection", "detection",
+}
+DETECTION_KEYS = {
+    "occlusion_ratio", "raw_ratio", "status", "raw_status", "boxes", "debris_count", "roi",
+    "camera_id", "interval_seconds", "timestamp",
+}
+MODEL_STATUS_FIELDS = {
+    "loaded", "weights_file", "weights_sha256", "weights_size_bytes", "input_shape", "output_shape",
+    "class_names", "conf_threshold", "iou_threshold", "model_version", "training_source",
+    "sidecar_hash_match", "input_source", "is_synthetic", "last_inference_at", "last_inference_ms",
+    "interval_seconds", "next_inference_in",
+}
+FULL_ROI_BOX = [128.0, 192.0, 512.0, 432.0]  # covers the default ROI at 640x480
+PARTIAL_BOX = [128.0, 192.0, 512.0, 192.0 + 240.0 * 0.4]  # 40 percent of the ROI height
+
+
+class _Detection:
+    def __init__(self, box):
+        self.box = list(box)
+        self.confidence = 0.9
+        self.class_id = 0
+        self.class_name = "debris"
+
+    def to_dict(self):
+        return {"box": self.box, "confidence": self.confidence, "class_name": self.class_name}
+
+
+@pytest.fixture
+def fresh_stream(monkeypatch):
+    """Reset the singleton's inference state so each test starts from CLEAR with an inference due."""
+    svc = stream_service
+    monkeypatch.setattr(svc, "_last_inference_time", 0.0)
+    monkeypatch.setattr(svc, "_cadence", CadenceController())
+    monkeypatch.setattr(
+        svc,
+        "_temporal_filter",
+        TemporalOcclusionFilter(window_size=3, confirmation_count=2, initial_status=OcclusionStatus.CLEAR),
+    )
+    monkeypatch.setattr(settings, "INFERENCE_INTERVAL_CLEAR", 0.5)
+    monkeypatch.setattr(settings, "INFERENCE_INTERVAL_BURST", 0.4)
+    monkeypatch.setattr(svc, "_current_inference_interval", 0.5)
+    monkeypatch.setattr(svc, "_latest_blockage_update", None)
+    monkeypatch.setattr(svc, "_inference_stats", {"last_inference_ms": None})
+    svc._events.clear()
+    return svc
+
+
+@pytest.fixture
+def boxes(fresh_stream, monkeypatch):
+    """Mutable detection list returned by the (mocked) inference engine."""
+    holder: list = []
+    monkeypatch.setattr(
+        fresh_stream._inference_engine, "infer", lambda frame: [_Detection(b) for b in holder]
+    )
+    return holder
+
+
+@pytest.fixture
+def online_weather(monkeypatch):
+    async def _online(*args, **kwargs):
+        return {
+            "is_online": True,
+            "rainfall_mm": 20.0,
+            "temperature_c": 27.0,
+            "humidity_pct": 90.0,
+            "condition": "Torrential Rain (Flood Risk)",
+            "weather_code": 65,
+            "message": "Torrential Rain (20.0 mm/hr)",
+            "location": "Metro Manila (PAGASA Sector)",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "cached": False,
+        }
+
+    monkeypatch.setattr(weather_service, "get_current_weather", _online)
+
+
+def _wait_for(ws, msg_type, predicate=lambda msg: True, timeout=5.0):
+    """Read WebSocket messages until one of `msg_type` satisfies `predicate` (5 s deadline)."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        msg = ws.receive_json()
+        if msg.get("type") == msg_type and predicate(msg):
+            return msg
+    raise AssertionError(f"no '{msg_type}' message within {timeout}s")
+
+
+def _wait_for_weather_row(timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if weather_service.latest_reading():
+            return
+        time.sleep(0.05)
+    raise AssertionError("weather worker stored no reading")
+
+
+def test_stream_tick_key_sets_unchanged(client: TestClient, boxes):
+    with client.websocket_connect("/ws") as ws:
+        tick = _wait_for(ws, "stream_tick", lambda m: "interval_seconds" in m["detection"])
+    assert set(tick) == STREAM_TICK_KEYS
+    assert set(tick["detection"]) == DETECTION_KEYS
+    assert set(tick["connection"]) == {"is_connected", "is_synthetic", "source_type", "source", "error"}
+
+
+def test_connect_sends_connected_then_model_status(client: TestClient, boxes):
+    with client.websocket_connect("/ws") as ws:
+        assert ws.receive_json()["type"] == "connected"
+        msg = _wait_for(ws, "model_status")
+    data = msg["data"]
+    assert set(data) == MODEL_STATUS_FIELDS
+    assert data["loaded"] is True
+    assert data["weights_file"] == "best.onnx"  # name only, never a path
+    expected_sha = hashlib.sha256(settings.WEIGHTS_PATH.read_bytes()).hexdigest()
+    assert data["weights_sha256"] == expected_sha
+    assert data["sidecar_hash_match"] is True
+    assert data["model_version"] == "legacy-unknown"
+    assert data["class_names"] == ["debris"]
+    assert data["input_source"] == "demo"
+
+
+def test_health_has_nested_model_with_same_fields(client: TestClient, boxes):
+    model = client.get("/health").json()["model"]
+    assert set(model) == MODEL_STATUS_FIELDS
+    with client.websocket_connect("/ws") as ws:
+        ws_model = _wait_for(ws, "model_status")["data"]
+    for key in ("weights_sha256", "model_version", "class_names", "input_shape", "output_shape"):
+        assert model[key] == ws_model[key]
+
+
+def test_blockage_update_maps_status(client: TestClient, boxes):
+    mapping = []
+    with client.websocket_connect("/ws") as ws:
+        first = _wait_for(ws, "blockage_detection_update")["data"]
+        mapping.append((first["status"], first["blockage_status"]))
+        assert set(first) == {
+            "camera_id", "status", "blockage_status", "blockage_percentage", "raw_ratio", "timestamp"
+        }
+        boxes[:] = [PARTIAL_BOX]
+        partial = _wait_for(ws, "blockage_detection_update", lambda m: m["data"]["status"] == "WARNING")["data"]
+        mapping.append((partial["status"], partial["blockage_status"]))
+        boxes[:] = [FULL_ROI_BOX]
+        blocked = _wait_for(ws, "blockage_detection_update", lambda m: m["data"]["status"] == "CRITICAL")["data"]
+        mapping.append((blocked["status"], blocked["blockage_status"]))
+        assert blocked["blockage_percentage"] == round(blocked["blockage_percentage"], 2)
+    assert mapping == [("CLEAR", "clear"), ("WARNING", "partial"), ("CRITICAL", "blocked")]
+
+
+def test_incident_created_envelope_is_tagged_demo(client: TestClient, boxes):
+    with client.websocket_connect("/ws") as ws:
+        _wait_for(ws, "model_status")
+        boxes[:] = [FULL_ROI_BOX]
+        created = _wait_for(ws, "incident_created")["data"]
+    assert created["source_type"] == "demo"
+    assert created["status"] == "CRITICAL"
+    assert created["model_version"] == "legacy-unknown"
+    listed = {i["id"]: i for i in client.get("/api/v1/incidents").json()}
+    assert listed[created["id"]]["source_type"] == "demo"
+    assert listed[created["id"]]["model_sha256"] == created["model_sha256"]
+
+
+def test_weather_update_on_connect_and_hazard_auto(online_weather, client: TestClient, boxes):
+    _wait_for_weather_row()
+    with client.websocket_connect("/ws") as ws:
+        data = _wait_for(ws, "weather_update")["data"]
+    assert data["precipitation_mm"] == 20.0
+    assert data["weather_code"] == 65
+    parsed = datetime.fromisoformat(data["timestamp"])
+    assert parsed.utcoffset().total_seconds() == 0  # UTC
+    assert data["rain_hazard"] == {"active": True, "source": "auto", "threshold_mm": 15.0}
+
+    weather = client.get("/api/v1/weather").json()
+    assert weather["rain_hazard"]["active"] is True
+    assert client.get("/api/v1/weather/hazard").json()["active"] is True
+
+
+def test_hazard_override_roundtrip_and_broadcast(client: TestClient, boxes):
+    assert client.get("/api/v1/weather/hazard").json() == {"active": False, "source": "auto", "threshold_mm": 15.0}
+    with client.websocket_connect("/ws") as ws:
+        _wait_for(ws, "model_status")
+        res = client.put("/api/v1/weather/hazard/override", json={"active": True})
+        assert res.json() == {"active": True, "source": "override", "threshold_mm": 15.0}
+        update = _wait_for(ws, "weather_update")["data"]
+    assert update["rain_hazard"]["source"] == "override"
+    assert update["rain_hazard"]["active"] is True
+    assert set(update) == {"precipitation_mm", "weather_code", "timestamp", "condition", "is_online", "rain_hazard"}
+
+    res = client.put("/api/v1/weather/hazard/override", json={"active": None})
+    assert res.json()["source"] == "auto"
+    assert res.json()["active"] is False
+
+
+@pytest.mark.parametrize("hazard", [True, False])
+def test_hazard_never_changes_cadence_status_or_incident(client: TestClient, boxes, hazard):
+    client.put("/api/v1/weather/hazard/override", json={"active": hazard})
+    with client.websocket_connect("/ws") as ws:
+        _wait_for(ws, "model_status")
+        boxes[:] = [FULL_ROI_BOX]
+        created = _wait_for(ws, "incident_created")["data"]
+        status = _wait_for(ws, "model_status", lambda m: m["data"]["interval_seconds"] == 0.4)["data"]
+        update = _wait_for(ws, "blockage_detection_update", lambda m: m["data"]["status"] == "CRITICAL")["data"]
+    assert created["status"] == "CRITICAL"
+    assert status["interval_seconds"] == 0.4  # burst cadence, identical with hazard on or off
+    assert update["blockage_status"] == "blocked"
+    assert len([i for i in client.get("/api/v1/incidents").json() if i["is_open"] == 1]) == 1

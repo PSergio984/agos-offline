@@ -59,4 +59,22 @@ export interface Incident {
   action_taken?: 'PENDING' | 'DISPATCHED' | 'RESOLVED' | 'CLEARED';
   dispatched_at?: string;
   acknowledged?: boolean;
+  source_type?: string; // 'demo' | 'live' | 'manual' | 'unknown'
+  cloud_synced?: boolean;
+}
+
+export interface RainHazard {
+  active: boolean;
+  source: 'auto' | 'override';
+  threshold_mm: number;
+}
+
+export interface ModelStatus {
+  loaded: boolean;
+  weights_sha256?: string | null;
+  model_version?: string | null;
+  input_source?: 'demo' | 'live' | string;
+  is_synthetic?: boolean;
+  next_inference_in?: number | null;
+  interval_seconds?: number | null;
 }

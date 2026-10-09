@@ -65,7 +65,24 @@ INCIDENT_EXTRA_COLUMNS = {
     "duration_seconds": "REAL NOT NULL DEFAULT 0",
     "source_type": "TEXT NOT NULL DEFAULT 'unknown'",
     "cloud_synced": "INTEGER NOT NULL DEFAULT 0",
+    "model_version": "TEXT",
+    "model_sha256": "TEXT",
+    "precipitation_mm": "REAL",
+    "weather_code": "INTEGER",
 }
+
+# One row per successful online weather fetch (timestamps are UTC ISO-8601)
+SQL_CREATE_WEATHER_READINGS = """
+CREATE TABLE IF NOT EXISTS weather_readings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    precipitation_mm REAL,
+    weather_code INTEGER,
+    temperature_c REAL,
+    humidity_pct REAL,
+    condition TEXT
+);
+"""
 
 SQL_CREATE_OPEN_INCIDENT_INDEX = """
 CREATE UNIQUE INDEX IF NOT EXISTS ux_incidents_one_open_per_camera
@@ -95,7 +112,11 @@ SQL_SELECT_INCIDENTS = """
         i.source_type,
         i.is_open,
         i.closed_at,
-        i.duration_seconds
+        i.duration_seconds,
+        i.model_version,
+        i.model_sha256,
+        i.precipitation_mm,
+        i.weather_code
     FROM incidents i
     LEFT JOIN cameras c ON i.camera_id = c.id
 """
@@ -141,6 +162,7 @@ async def init_db() -> None:
         await db.execute(SQL_CREATE_ROI_CONFIGS)
         await db.execute(SQL_CREATE_INCIDENTS)
         await db.execute(SQL_CREATE_SYNC_QUEUE)
+        await db.execute(SQL_CREATE_WEATHER_READINGS)
 
         added = await _ensure_columns(db, "incidents", INCIDENT_EXTRA_COLUMNS)
         if "cloud_synced" in added:

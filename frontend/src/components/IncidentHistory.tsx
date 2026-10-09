@@ -191,6 +191,11 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({
                       >
                         {incident.status}
                       </span>
+                      {incident.source_type === 'demo' && (
+                        <span className="text-[10px] font-sans font-bold px-2 py-0.5 rounded uppercase border tracking-wide bg-violet-100 text-violet-800 border-violet-300 dark:bg-violet-950 dark:text-violet-300 dark:border-violet-800">
+                          Demo
+                        </span>
+                      )}
                       <span className="text-rose-600 dark:text-rose-400 font-mono text-xs font-bold">
                         {incident.occlusion_ratio.toFixed(1)}% Occlusion
                       </span>

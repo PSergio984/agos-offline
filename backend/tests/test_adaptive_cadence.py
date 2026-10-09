@@ -322,8 +322,8 @@ def test_incident_created_event_is_drained_once():
     h = Harness()
     h.step(1, [FULL_ROI_BOX])
     h.step(3, [FULL_ROI_BOX])
-    events = h.service.drain_events()
-    assert [e["type"] for e in events] == ["incident_created"]
+    events = [e for e in h.service.drain_events() if e["type"] == "incident_created"]
+    assert len(events) == 1
     assert events[0]["data"]["is_open"] == 1
     assert events[0]["data"]["action_taken"] == "PENDING"
     assert h.service.drain_events() == []

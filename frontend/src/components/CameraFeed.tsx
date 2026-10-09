@@ -296,6 +296,8 @@ export const CameraFeed: React.FC<CameraFeedProps> = ({
           } else if (typeof event.data === 'string') {
             try {
               const data = JSON.parse(event.data);
+              // Typed envelopes ({type, data}) carry no flat telemetry; ignore so they cannot reset live state
+              if (data.type && data.data && !data.frame) return;
               const frameSrc = data.frame || data.frame_b64 || data.image;
               if (frameSrc) {
                 const img = new Image();
