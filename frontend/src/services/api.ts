@@ -225,3 +225,18 @@ export async function fetchSyncStatus(): Promise<{
   };
 }
 
+export async function setHazardOverride(active: boolean | null): Promise<RainHazard | null> {
+  try {
+    const res = await fetch(`${API_BASE}/weather/hazard/override`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active }),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[API] Could not set hazard override:', err);
+  }
+  return null;
+}
